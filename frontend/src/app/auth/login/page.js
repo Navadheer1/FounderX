@@ -1,0 +1,94 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { useAuth } from '../../../context/AuthContext';
+import { Eye, EyeOff } from 'lucide-react';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const { login } = useAuth();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const res = await login(email, password);
+    if (!res.success) {
+      setError(res.error);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-section px-4">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-sm p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-heading">Welcome Back</h1>
+          <p className="text-body mt-2">Sign in to continue to FounderX</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 text-red-500 text-sm p-3 rounded-lg mb-4 text-center">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-heading mb-1">Email</label>
+            <input
+              type="email"
+              required
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-heading mb-1">Password</label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition pr-12"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary transition-colors focus:outline-none"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? (
+                  <EyeOff className="h-5 w-5" />
+                ) : (
+                  <Eye className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="w-full bg-primary text-white font-bold py-3 rounded-xl hover:bg-blue-600 transition transform hover:-translate-y-0.5 shadow-md"
+          >
+            Sign In
+          </button>
+        </form>
+
+        <div className="mt-6 text-center text-sm text-body">
+          Don't have an account?{' '}
+          <Link href="/auth/signup" className="text-primary font-bold hover:underline">
+            Sign Up
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
