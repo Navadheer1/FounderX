@@ -11,6 +11,19 @@ const conversationSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  type: {
+    type: String,
+    enum: ['direct', 'group'],
+    default: 'direct'
+  },
+  startupId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Startup'
+  },
+  applicationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'JobApplication'
+  },
   status: {
     type: String,
     enum: ['pending', 'accepted', 'declined', 'blocked'],
@@ -25,6 +38,7 @@ const conversationSchema = new mongoose.Schema({
     of: Number,
     default: {}
   },
+  // Backward compatibility fields
   isGroup: {
     type: Boolean,
     default: false

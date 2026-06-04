@@ -1,26 +1,58 @@
 const mongoose = require('mongoose');
 
 const investorProfileSchema = new mongoose.Schema({
-  user: {
+  userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
     unique: true
   },
+  profilePhoto: {
+    type: String,
+    default: ''
+  },
+  bio: {
+    type: String,
+    default: ''
+  },
   investorType: {
     type: String,
-    enum: ['Angel', 'VC', 'Accelerator', 'Family Office', 'Corporate'],
+    enum: ['Angel', 'VC', 'Accelerator', 'Family Office', 'Corporate', 'Other'],
     default: 'Angel'
+  },
+  investmentMin: {
+    type: Number,
+    default: 0
+  },
+  investmentMax: {
+    type: Number,
+    default: 0
   },
   preferredIndustries: [{
     type: String
   }],
+  location: {
+    type: String,
+    default: ''
+  },
+  portfolioCompanies: [{
+    type: String
+  }],
+  linkedin: {
+    type: String,
+    default: ''
+  },
+  website: {
+    type: String,
+    default: ''
+  },
+  // Keep the below for compatibility with existing watchlist / dashboard features:
   ticketSize: {
     min: { type: Number, default: 0 },
     max: { type: Number, default: 0 }
   },
   preferredStages: [{
-    type: String, // e.g., 'Pre-Seed', 'Seed', 'Series A'
+    type: String
   }],
   portfolio: [{
     name: String,
@@ -52,12 +84,6 @@ const investorProfileSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  location: {
-    type: String
-  },
-  bio: {
-    type: String
-  },
   portfolio_count: {
     type: Number,
     default: 0
@@ -68,6 +94,14 @@ const investorProfileSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
+});
+
+// Alias user to userId for backward compatibility
+investorProfileSchema.virtual('user', {
+  ref: 'User',
+  localField: 'userId',
+  foreignField: '_id',
+  justOne: true
 });
 
 module.exports = mongoose.model('InvestorProfile', investorProfileSchema);

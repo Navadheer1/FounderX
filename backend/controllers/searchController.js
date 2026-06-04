@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const Startup = require('../models/Startup');
+const Post = require('../models/Post');
 
 exports.globalSearch = async (req, res) => {
   try {
@@ -14,20 +16,49 @@ exports.globalSearch = async (req, res) => {
       q = q.substring(1);
     }
 
-    // Perform case-insensitive search on username, name, and email
-    const users = await User.find({
-      $or: [
-        { username: { $regex: q, $options: 'i' } },
-        { name: { $regex: q, $options: 'i' } },
-        { email: { $regex: q, $options: 'i' } }
-      ]
-    })
-    .select('_id name username role profileImage isVerified')
-    .limit(10);
+    const regex = { $regex: q, $options: 'i' };
+
+    // Perform searches in parallel
+    const [users, startups, posts] = await Promise.all([
+      User.find({
+        $or: [
+          { username: regex },
+          { name: regex },
+          { email: regex }
+        ]
+      })
+      .select('_id name username role profileImage isVerified')
+      .limit(10),
+
+      Startup.find({
+        $or: [
+          { name: regex },
+          { oneLinePitch: regex },
+          { description: regex },
+          { industry: regex }
+        ]
+      })
+      .select('_id name logo oneLinePitch industry stage')
+      .limit(10),
+
+      Post.find({
+        $or: [
+          { content: regex },
+          { tags: regex }
+        ]
+      })
+      .populate('authorId', 'name username profileImage')
+      .select('_id authorId content contentType createdAt')
+      .limit(10)
+    ]);
 
     res.json({
       success: true,
-      data: users
+      data: {
+        users,
+        startups,
+        posts
+      }
     });
 
   } catch (error) {

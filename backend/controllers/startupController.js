@@ -6,6 +6,10 @@ const Report = require('../models/Report');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 const FounderProfile = require('../models/FounderProfile');
+const Follow = require('../models/Follow');
+const SavedItem = require('../models/SavedItem');
+const StartupTeamMember = require('../models/StartupTeamMember');
+const StartupRoleRequest = require('../models/StartupRoleRequest');
 
 
 // @desc    Get Startup Badge (SVG) and Track View
@@ -76,9 +80,9 @@ exports.createStartup = async (req, res) => {
     const startup = await Startup.create(req.body);
 
     // Link startup to FounderProfile
-    let founderProfile = await FounderProfile.findOne({ user: req.user.id });
+    let founderProfile = await FounderProfile.findOne({ userId: req.user.id });
     if (!founderProfile) {
-      founderProfile = new FounderProfile({ user: req.user.id });
+      founderProfile = new FounderProfile({ userId: req.user.id });
     }
     if (!founderProfile.startups.includes(startup._id)) {
       founderProfile.startups.push(startup._id);
@@ -93,6 +97,161 @@ exports.createStartup = async (req, res) => {
     console.error(error);
     res.status(400).json({ success: false, error: error.message });
   }
+};
+
+// Helper function to evaluate role-based permissions for a startup
+const getStartupPermissions = async (startup, user) => {
+  const defaultPerms = {
+    canView: true,
+    canFollow: false,
+    canSave: false,
+    canViewJobs: true,
+    canApply: false,
+    canMessageFounder: false,
+    canInvest: false,
+    canManage: false,
+    canEdit: false
+  };
+
+  if (!user) return defaultPerms;
+
+  const isOwner = startup.founderId.toString() === user._id.toString();
+  const isTeamMember = startup.teamMembers && startup.teamMembers.some(member => member.userId && member.userId.toString() === user._id.toString());
+
+  // Check follow status
+  let isFollowing = false;
+  if (startup.followers) {
+    isFollowing = startup.followers.some(id => id.toString() === user._id.toString());
+  }
+
+  // Check saved status
+  let isSaved = false;
+  if (startup.saves) {
+    isSaved = startup.saves.some(save => save.userId.toString() === user._id.toString());
+  }
+
+  // Check mutual follow: if user follows founder and founder follows user
+  let isMutualFollow = false;
+  try {
+    const founder = await User.findById(startup.founderId);
+    if (founder) {
+      const userFollowsFounder = founder.followers && founder.followers.some(id => id.toString() === user._id.toString());
+      const founderFollowsUser = user.followers && user.followers.some(id => id.toString() === founder._id.toString());
+      isMutualFollow = userFollowsFounder && founderFollowsUser;
+    }
+  } catch (err) {
+    console.error('Mutual follow check error:', err);
+  }
+
+  if (user.role === 'job_seeker') {
+    // Check if there is an accepted job application by this job seeker for this startup
+    let hasAcceptedApplication = false;
+    try {
+      const app = await Application.findOne({
+        startupId: startup._id,
+        applicantId: user._id,
+        status: { $in: ['connected', 'accepted', 'hired'] }
+      });
+      hasAcceptedApplication = !!app;
+
+      if (!hasAcceptedApplication) {
+        const JobApplication = require('../models/JobApplication');
+        const jobApp = await JobApplication.findOne({
+          startupId: startup._id,
+          applicantId: user._id,
+          status: { $in: ['connected', 'accepted', 'hired'] }
+        });
+        hasAcceptedApplication = !!jobApp;
+      }
+
+      if (!hasAcceptedApplication) {
+        const roleReq = await StartupRoleRequest.findOne({
+          startupId: startup._id,
+          applicantId: user._id,
+          status: { $in: ['connected', 'accepted', 'hired'] }
+        });
+        hasAcceptedApplication = !!roleReq;
+      }
+    } catch (err) {
+      console.error('Job application check error:', err);
+    }
+
+    const JobOpening = require('../models/JobOpening');
+    let hasJobs = startup.jobs && startup.jobs.length > 0;
+    if (!hasJobs) {
+      try {
+        const count = await JobOpening.countDocuments({ startupId: startup._id, status: 'open' });
+        hasJobs = count > 0;
+      } catch (err) {
+        console.error('Error counting jobs:', err);
+      }
+    }
+
+    const canMessage = hasAcceptedApplication || isMutualFollow || isTeamMember;
+
+    return {
+      canView: true,
+      canFollow: true,
+      canFollowed: isFollowing, // current status
+      canSave: true,
+      canSaved: isSaved, // current status
+      canViewJobs: true,
+      canApply: hasJobs,
+      canMessageFounder: canMessage,
+      canInvest: false,
+      canManage: false,
+      canEdit: false
+    };
+  }
+
+  if (user.role === 'investor') {
+    // Check if there is an accepted investment request / interest
+    let hasAcceptedInterest = false;
+    try {
+      const interest = await InvestmentRequest.findOne({
+        startupId: startup._id,
+        investorId: user._id,
+        status: 'accepted'
+      });
+      hasAcceptedInterest = !!interest;
+    } catch (err) {
+      console.error('Investment interest check error:', err);
+    }
+
+    const canMessage = hasAcceptedInterest || isMutualFollow;
+
+    return {
+      canView: true,
+      canFollow: true,
+      canFollowed: isFollowing,
+      canSave: true,
+      canSaved: isSaved,
+      canViewJobs: false,
+      canApply: false,
+      canMessageFounder: canMessage,
+      canInvest: true,
+      canManage: false,
+      canEdit: false
+    };
+  }
+
+  if (user.role === 'founder') {
+    return {
+      canView: true,
+      canFollow: true,
+      canFollowed: isFollowing,
+      canSave: true,
+      canSaved: isSaved,
+      canViewJobs: true,
+      canApply: false,
+      canMessageFounder: isMutualFollow || isOwner || isTeamMember,
+      canInvest: false,
+      canManage: isOwner,
+      canEdit: isOwner
+    };
+  }
+
+  return defaultPerms;
 };
 
 // @desc    Get all startups
@@ -156,17 +315,23 @@ exports.getStartups = async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 10;
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
-    const total = await Startup.countDocuments();
+    const total = await Startup.countDocuments(queryObj);
 
     query = query.skip(startIndex).limit(limit);
 
     // Executing query
     const startups = await query;
 
-    // Convert to public JSON
-    const startupsWithStatus = startups.map(startup => 
-      startup.toPublicJSON(req.user ? req.user : null)
-    );
+    // Convert to public JSON with permission object (both nested and flat-compatible)
+    const startupsWithStatus = await Promise.all(startups.map(async (startup) => {
+      const publicStartup = startup.toPublicJSON(req.user ? req.user : null);
+      const permissions = await getStartupPermissions(startup, req.user);
+      return {
+        ...publicStartup,
+        startup: publicStartup,
+        permissions
+      };
+    }));
 
     // Pagination result
     const pagination = {};
@@ -216,11 +381,20 @@ exports.getStartup = async (req, res) => {
     }
 
     // Increment views
-    // await startup.incrementViews(); // Commented out temporarily if method missing
+    try {
+      await startup.incrementViews();
+    } catch (err) {
+      // Ignore if method fails
+    }
+
+    const permissions = await getStartupPermissions(startup, req.user);
 
     res.status(200).json({
       success: true,
-      data: startup
+      data: {
+        ...startup.toObject(),
+        permissions
+      }
     });
   } catch (error) {
     console.error(error);
@@ -466,10 +640,10 @@ exports.requestInvestment = async (req, res) => {
   try {
     const { message, requestPitchDeck } = req.body;
     
-    // Check role? Or allow anyone to express interest? 
-    // Requirement says "Only logged-in users can... Request investment". 
-    // Usually only investors. But let's stick to logged-in users for now or check 'investor' role.
-    // if (req.user.role !== 'investor') ...
+    // Check role: Only investors can express interest
+    if (req.user.role !== 'investor') {
+      return res.status(403).json({ success: false, error: 'Only investors can send investment requests' });
+    }
 
     const startup = await Startup.findById(req.params.id);
     if (!startup) {
@@ -588,6 +762,46 @@ exports.updateApplicationStatus = async (req, res) => {
     application.status = status;
     await application.save();
 
+    if (status === 'accepted') {
+      // Add applicant to startup teamMembers if not already there
+      const isAlreadyMember = startup.teamMembers.some(member => member.userId && member.userId.toString() === application.applicantId.toString());
+      if (!isAlreadyMember) {
+        const applicantUser = await User.findById(application.applicantId);
+        startup.teamMembers.push({
+          userId: application.applicantId,
+          name: applicantUser ? applicantUser.fullName || applicantUser.name : 'Team Member',
+          role: 'Team Member',
+          image: applicantUser ? applicantUser.profileImage : '',
+          linkedin: applicantUser?.socialLinks?.linkedin || ''
+        });
+        await startup.save();
+
+        // Create StartupTeamMember collection entry
+        try {
+          await StartupTeamMember.create({
+            startupId: startup._id,
+            userId: application.applicantId,
+            role: 'Team Member',
+            name: applicantUser ? applicantUser.fullName || applicantUser.name : 'Team Member',
+            image: applicantUser ? applicantUser.profileImage : '',
+            linkedin: applicantUser?.socialLinks?.linkedin || ''
+          });
+        } catch (err) {
+          // Ignore unique index duplicate errors
+        }
+      }
+
+      // Send notification to applicant
+      await createNotification({
+        recipient: application.applicantId,
+        sender: req.user.id,
+        type: 'invite_accepted',
+        entityId: application._id,
+        entityType: 'Application',
+        content: `Congratulations! Your job application to ${startup.name} has been accepted!`
+      }, req.app.get('io'));
+    }
+
     res.status(200).json({
       success: true,
       data: application
@@ -597,13 +811,13 @@ exports.updateApplicationStatus = async (req, res) => {
     res.status(500).json({ success: false, error: 'Server Error' });
   }
 };
-
 // @desc    Update Investment Request Status
 // @route   PUT /api/startups/investment-requests/:id/status
-// @access  Private (Founder only)
+// @access  Private
 exports.updateInvestmentRequestStatus = async (req, res) => {
   try {
-    const { status } = req.body; // pending, accepted, rejected, contacted
+    const { status } = req.body; // pending, accepted, rejected, closed
+    const InvestmentRequest = require('../models/InvestmentRequest');
     
     const request = await InvestmentRequest.findById(req.params.id);
     if (!request) {
@@ -611,12 +825,32 @@ exports.updateInvestmentRequestStatus = async (req, res) => {
     }
 
     const startup = await Startup.findById(request.startupId);
-    if (startup.founderId.toString() !== req.user.id && req.user.role !== 'admin') {
+    
+    // Auth check: Must be the startup founder OR the investor in the request OR an admin
+    const isFounder = startup && startup.founderId.toString() === req.user.id;
+    const isInvestor = request.investorId.toString() === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isFounder && !isInvestor && !isAdmin) {
       return res.status(401).json({ success: false, error: 'Not authorized' });
     }
 
     request.status = status;
     await request.save();
+
+    // Notify the other party about the update
+    const recipientId = req.user.id === request.founderId.toString() ? request.investorId : request.founderId;
+    const type = status === 'accepted' ? 'invite_accepted' : 'invite_rejected';
+    const statusLabel = status === 'accepted' ? 'accepted' : 'rejected';
+    
+    await createNotification({
+      recipient: recipientId,
+      sender: req.user.id,
+      type: type,
+      entityId: request._id,
+      entityType: 'InvestmentRequest',
+      content: `${req.user.name} ${statusLabel} the investment request for ${startup ? startup.name : 'startup'}`
+    }, req.app.get('io'));
 
     res.status(200).json({
       success: true,
@@ -627,3 +861,346 @@ exports.updateInvestmentRequestStatus = async (req, res) => {
     res.status(500).json({ success: false, error: 'Server Error' });
   }
 };
+
+// @desc    Follow Startup
+// @route   POST /api/startups/:id/follow
+// @access  Private
+exports.followStartup = async (req, res) => {
+  try {
+    const startup = await Startup.findById(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ success: false, error: 'Startup not found' });
+    }
+
+    if (!startup.followers) startup.followers = [];
+    
+    // Check if already following
+    const isFollowing = startup.followers.some(id => id.toString() === req.user.id.toString());
+    if (isFollowing) {
+      return res.status(400).json({ success: false, error: 'You are already following this startup' });
+    }
+
+    // Add to startup followers
+    startup.followers.push(req.user.id);
+    await startup.save();
+
+    // Create/update Follow record
+    try {
+      await Follow.create({
+        followerId: req.user.id,
+        followedId: startup._id,
+        entityType: 'Startup'
+      });
+    } catch (err) {
+      // Ignore uniques
+    }
+
+    // Send notification to founder
+    await createNotification({
+      recipient: startup.founderId,
+      sender: req.user.id,
+      type: 'startup_follow',
+      entityId: startup._id,
+      entityType: 'Startup',
+      content: `${req.user.name || 'A user'} followed your startup ${startup.name}`
+    }, req.app.get('io'));
+
+    res.status(200).json({
+      success: true,
+      message: 'Successfully followed startup'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Unfollow Startup
+// @route   DELETE /api/startups/:id/follow
+// @access  Private
+exports.unfollowStartup = async (req, res) => {
+  try {
+    const startup = await Startup.findById(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ success: false, error: 'Startup not found' });
+    }
+
+    if (!startup.followers) startup.followers = [];
+
+    // Check if not following
+    const isFollowing = startup.followers.some(id => id.toString() === req.user.id.toString());
+    if (!isFollowing) {
+      return res.status(400).json({ success: false, error: 'You are not following this startup' });
+    }
+
+    // Remove from followers
+    startup.followers = startup.followers.filter(id => id.toString() !== req.user.id.toString());
+    await startup.save();
+
+    // Remove from Follow collection
+    await Follow.deleteOne({
+      followerId: req.user.id,
+      followedId: startup._id,
+      entityType: 'Startup'
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Successfully unfollowed startup'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Save Startup
+// @route   POST /api/startups/:id/save
+// @access  Private
+exports.saveStartup = async (req, res) => {
+  try {
+    const startup = await Startup.findById(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ success: false, error: 'Startup not found' });
+    }
+
+    const user = await User.findById(req.user.id);
+
+    // Save startup
+    if (!user.savedStartups.includes(req.params.id)) {
+      user.savedStartups.push(req.params.id);
+      await user.save();
+    }
+
+    // Add to startup saves
+    if (!startup.saves) startup.saves = [];
+    const hasSaved = startup.saves.some(save => save.userId.toString() === req.user.id.toString());
+    if (!hasSaved) {
+      startup.saves.push({ userId: req.user.id });
+      await startup.save();
+    }
+
+    // Create SavedItem record
+    try {
+      await SavedItem.create({
+        userId: req.user.id,
+        startupId: startup._id
+      });
+    } catch (err) {
+      // Ignore duplicates
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Startup saved successfully'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Unsave Startup
+// @route   DELETE /api/startups/:id/save
+// @access  Private
+exports.unsaveStartup = async (req, res) => {
+  try {
+    const startup = await Startup.findById(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ success: false, error: 'Startup not found' });
+    }
+
+    const user = await User.findById(req.user.id);
+
+    // Remove from user's saved list
+    user.savedStartups = user.savedStartups.filter(id => id.toString() !== req.params.id);
+    await user.save();
+
+    // Remove from startup saves list
+    if (startup.saves) {
+      startup.saves = startup.saves.filter(save => save.userId.toString() !== req.user.id.toString());
+      await startup.save();
+    }
+
+    // Remove SavedItem record
+    await SavedItem.deleteOne({
+      userId: req.user.id,
+      startupId: startup._id
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Startup unsaved successfully'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Get Startup Jobs
+// @route   GET /api/startups/:id/jobs
+// @access  Public
+exports.getStartupJobs = async (req, res) => {
+  try {
+    let startupId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(startupId)) {
+      const startup = await Startup.findOne({ slug: startupId });
+      if (!startup) {
+        return res.status(404).json({ success: false, error: 'Startup not found' });
+      }
+      startupId = startup._id;
+    }
+
+    const JobOpening = require('../models/JobOpening');
+    const jobs = await JobOpening.find({ startupId, status: 'open' }).sort('-createdAt');
+    res.status(200).json({
+      success: true,
+      data: jobs
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Create Job Opening for a Startup
+// @route   POST /api/startups/:id/jobs
+// @access  Private (Founder only)
+exports.createStartupJob = async (req, res) => {
+  try {
+    const startup = await Startup.findById(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ success: false, error: 'Startup not found' });
+    }
+
+    // Auth check: Make sure user owns the startup
+    if (startup.founderId.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(401).json({ success: false, error: 'Not authorized to post jobs for this startup' });
+    }
+
+    const JobOpening = require('../models/JobOpening');
+    const {
+      title,
+      description,
+      roleType,
+      requiredSkills,
+      experienceLevel,
+      workMode,
+      location,
+      salaryMin,
+      salaryMax,
+      duration,
+      openings,
+      deadline
+    } = req.body;
+
+    const job = await JobOpening.create({
+      startupId: startup._id,
+      founderId: req.user.id,
+      title,
+      description,
+      roleType,
+      requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : (requiredSkills ? requiredSkills.split(',').map(s => s.trim()) : []),
+      experienceLevel,
+      workMode,
+      location: location || 'Remote',
+      salaryMin,
+      salaryMax,
+      duration,
+      openings: openings || 1,
+      deadline: deadline ? new Date(deadline) : null,
+      status: 'open'
+    });
+
+    // Also push to startup.jobs for backward compatibility if needed
+    if (!startup.jobs) startup.jobs = [];
+    startup.jobs.push({
+      _id: job._id,
+      title,
+      type: roleType === 'Internship' ? 'Internship' : 'Full-time',
+      location: location || 'Remote',
+      salary: salaryMin ? `${salaryMin}-${salaryMax || ''}` : '',
+      description,
+      skills: Array.isArray(requiredSkills) ? requiredSkills : (requiredSkills ? requiredSkills.split(',').map(s => s.trim()) : [])
+    });
+    await startup.save();
+
+    res.status(201).json({
+      success: true,
+      data: job
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+};
+
+// @desc    Send startup role request
+// @route   POST /api/startups/:id/role-request
+// @access  Private
+exports.createStartupRoleRequest = async (req, res) => {
+  try {
+    const { requestType, roleTitle, skills, resume, portfolioLink, github, linkedin, message, availabilityDate, expectedSalary, reasonToJoin } = req.body;
+    
+    // Check if user is job_seeker
+    if (req.user.role !== 'job_seeker') {
+      return res.status(403).json({ success: false, error: 'Only job seekers can send startup role requests' });
+    }
+
+    const startup = await Startup.findById(req.params.id);
+    if (!startup) {
+      return res.status(404).json({ success: false, error: 'Startup not found' });
+    }
+
+    // Check if already applied to this startup with same role title and request type (pending or reviewed or connected)
+    const existing = await StartupRoleRequest.findOne({
+      startupId: startup._id,
+      applicantId: req.user.id,
+      requestType,
+      roleTitle,
+      status: { $in: ['pending', 'reviewed', 'connected', 'accepted', 'hired'] }
+    });
+
+    if (existing) {
+      return res.status(400).json({ success: false, error: 'You have already applied for this role at this startup' });
+    }
+
+    const request = await StartupRoleRequest.create({
+      startupId: startup._id,
+      founderId: startup.founderId,
+      applicantId: req.user.id,
+      requestType,
+      roleTitle,
+      skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map(s => s.trim()) : []),
+      resume,
+      portfolioLink,
+      github,
+      linkedin,
+      message,
+      availabilityDate: availabilityDate ? new Date(availabilityDate) : null,
+      expectedSalary,
+      reasonToJoin,
+      status: 'pending'
+    });
+
+    // Notify founder
+    await createNotification({
+      recipient: startup.founderId,
+      sender: req.user.id,
+      type: 'role_request',
+      entityId: request._id,
+      entityType: 'StartupRoleRequest',
+      content: `${req.user.fullName || req.user.name} sent a startup role request (${requestType}: ${roleTitle}) to join ${startup.name}`
+    }, req.app.get('io'));
+
+    res.status(201).json({
+      success: true,
+      data: request
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+};
+

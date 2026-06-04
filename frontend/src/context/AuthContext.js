@@ -127,11 +127,20 @@ export const AuthProvider = ({ children }) => {
         setToken(data.token);
         setUser(data);
         
-        // Redirect to correct dashboard based on role
-        if (data.role === 'investor') {
-          router.push('/dashboard/investor');
+        // Redirect to correct dashboard based on role or setup page
+        const needsSetup = !data.profileCompleted && !data.isProfileComplete && data.role !== 'admin';
+        if (needsSetup) {
+          router.push('/profile/setup');
         } else {
-          router.push('/dashboard/founder');
+          if (data.role === 'admin') {
+            router.push('/dashboard/admin');
+          } else if (data.role === 'investor') {
+            router.push('/dashboard/investor');
+          } else if (data.role === 'job_seeker') {
+            router.push('/dashboard/job-seeker');
+          } else {
+            router.push('/dashboard/founder');
+          }
         }
         
         return { success: true };
@@ -167,11 +176,20 @@ export const AuthProvider = ({ children }) => {
         setToken(data.token);
         setUser(data);
         
-        // Redirect to correct dashboard based on role
-        if (data.role === 'investor') {
-          router.push('/dashboard/investor');
+        // Redirect to correct dashboard based on role or setup page
+        const needsSetup = !data.profileCompleted && !data.isProfileComplete && data.role !== 'admin';
+        if (needsSetup) {
+          router.push('/profile/setup');
         } else {
-          router.push('/dashboard/founder');
+          if (data.role === 'admin') {
+            router.push('/dashboard/admin');
+          } else if (data.role === 'investor') {
+            router.push('/dashboard/investor');
+          } else if (data.role === 'job_seeker') {
+            router.push('/dashboard/job-seeker');
+          } else {
+            router.push('/dashboard/founder');
+          }
         }
         
         return { success: true };

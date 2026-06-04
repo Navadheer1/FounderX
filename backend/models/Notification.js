@@ -6,14 +6,21 @@ const notificationSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  recipientId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   sender: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
+  senderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   type: {
     type: String,
-    enum: ['mention', 'follow', 'like', 'repost', 'reply', 'investor_interest', 'startup_follow', 'job_application', 'collaboration_request', 'investment_request', 'message_request', 'order'],
     required: true
   },
   entityId: {
@@ -22,19 +29,36 @@ const notificationSchema = new mongoose.Schema({
   },
   entityType: {
     type: String,
-    enum: ['Post', 'Startup', 'User', 'Comment', 'Application', 'InvestmentRequest', 'Order'],
+    enum: ['Post', 'Startup', 'User', 'Comment', 'Application', 'JobApplication', 'InvestmentRequest', 'Order', 'TeamInvitation', 'StartupRoleRequest'],
     required: true
   },
   content: {
-    type: String, // Optional preview text (e.g. comment content or post snippet)
+    type: String,
     default: ''
+  },
+  message: {
+    type: String
   },
   isRead: {
     type: Boolean,
     default: false
+  },
+  link: {
+    type: String
   }
 }, {
   timestamps: true
+});
+
+// Sync fields before save for backward compatibility
+notificationSchema.pre('save', function(next) {
+  if (!this.recipientId) this.recipientId = this.recipient;
+  if (!this.recipient) this.recipient = this.recipientId;
+  if (!this.senderId) this.senderId = this.sender;
+  if (!this.sender) this.sender = this.senderId;
+  if (!this.message) this.message = this.content;
+  if (!this.content) this.content = this.message;
+  next();
 });
 
 module.exports = mongoose.model('Notification', notificationSchema);

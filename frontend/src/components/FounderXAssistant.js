@@ -3086,6 +3086,7 @@ Then, provide exactly 3 highly actionable VC improvement suggestions to raise th
         onClick={toggleOpen}
         whileHover={{ scale: 1.06, y: -2 }}
         whileTap={{ scale: 0.95 }}
+        suppressHydrationWarning={true}
         style={{
           position: 'fixed',
           bottom: '24px',

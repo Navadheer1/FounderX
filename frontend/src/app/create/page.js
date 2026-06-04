@@ -50,7 +50,8 @@ export default function CreatePostPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setStartups(data.data);
+        const extracted = Array.isArray(data.data) ? data.data.map(item => item.startup || item) : [];
+        setStartups(extracted);
       }
     } catch (err) {
       console.error('Failed to fetch startups', err);

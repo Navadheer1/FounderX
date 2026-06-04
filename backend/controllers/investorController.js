@@ -71,28 +71,51 @@ exports.getWatchlist = async (req, res) => {
 // @access  Private
 exports.sendInterestRequest = async (req, res) => {
   try {
-    const { startupId, message, investmentRange } = req.body;
-    const investorId = req.user.id;
+    const { startupId, investorId, message, investmentRange } = req.body;
+    const userId = req.user.id;
 
     const startup = await Startup.findById(startupId);
     if (!startup) {
       return res.status(404).json({ success: false, error: 'Startup not found' });
     }
 
+    let finalInvestorId;
+    let finalFounderId;
+    let recipientId;
+    let notificationContent;
+
+    if (req.user.role === 'investor') {
+      // Investor expressing interest in Startup
+      finalInvestorId = userId;
+      finalFounderId = startup.founderId;
+      recipientId = startup.founderId;
+      notificationContent = `Investor ${req.user.name} expressed interest in ${startup.name}`;
+    } else {
+      // Founder pitching to Investor
+      if (!investorId) {
+        return res.status(400).json({ success: false, error: 'Investor ID is required for pitches' });
+      }
+      finalInvestorId = investorId;
+      finalFounderId = userId;
+      recipientId = investorId;
+      notificationContent = `Founder ${req.user.name} pitched ${startup.name} to you`;
+    }
+
     // Check for duplicate request
     const existingRequest = await InvestmentRequest.findOne({
       startupId,
-      investorId
+      investorId: finalInvestorId,
+      founderId: finalFounderId
     });
     if (existingRequest) {
-      return res.status(400).json({ success: false, error: 'Interest request already sent' });
+      return res.status(400).json({ success: false, error: 'Investment request already exists' });
     }
 
     // Create investment request
     const interestRequest = await InvestmentRequest.create({
       startupId,
-      investorId,
-      founderId: startup.founderId,
+      investorId: finalInvestorId,
+      founderId: finalFounderId,
       message,
       investmentRange,
       status: 'pending'
@@ -102,20 +125,20 @@ exports.sendInterestRequest = async (req, res) => {
     startup.metrics.investorInterest += 1;
     await startup.save();
 
-    // Create notification for founder
+    // Create notification for recipient
     const io = req.app.get('io');
     const notification = await Notification.create({
-      recipient: startup.founderId,
-      sender: investorId,
+      recipient: recipientId,
+      sender: userId,
       type: 'investment_request',
       entityId: interestRequest._id,
       entityType: 'InvestmentRequest',
-      content: message
+      content: message || notificationContent
     });
 
     // Emit real-time notification
     if (io) {
-      io.to(startup.founderId.toString()).emit('new_notification', notification);
+      io.to(recipientId.toString()).emit('new_notification', notification);
     }
 
     res.status(201).json({

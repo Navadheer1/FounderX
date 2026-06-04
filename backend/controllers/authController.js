@@ -21,11 +21,16 @@ const cookieOptions = {
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { fullName, name, email, password, role } = req.body;
+
+    const chosenName = fullName || name;
+    if (!chosenName) {
+      return res.status(400).json({ message: 'Full name is required' });
+    }
 
     // Validate role
-    if (role && !['founder', 'investor'].includes(role)) {
-      return res.status(400).json({ message: 'Invalid role. Must be founder or investor.' });
+    if (role && !['job_seeker', 'founder', 'investor'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role. Must be job_seeker, founder or investor.' });
     }
 
     // Check if user exists
@@ -38,8 +43,8 @@ exports.register = async (req, res) => {
     // Generate unique username if not provided
     let username = req.body.username;
     if (!username) {
-      const baseUsername = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      username = baseUsername;
+      const baseUsername = chosenName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      username = baseUsername || 'user';
       let isUnique = false;
       let counter = 0;
 
@@ -49,7 +54,7 @@ exports.register = async (req, res) => {
           isUnique = true;
         } else {
           counter++;
-          username = `${baseUsername}${Math.floor(Math.random() * 1000) + counter}`;
+          username = `${baseUsername || 'user'}${Math.floor(Math.random() * 1000) + counter}`;
         }
       }
     } else {
@@ -62,11 +67,13 @@ exports.register = async (req, res) => {
 
     // Create user
     const user = await User.create({
-      name,
+      fullName: chosenName,
+      name: chosenName,
       email,
-      password,
-      role,
-      username
+      passwordHash: password,
+      role: role || 'founder',
+      username,
+      profileCompleted: false
     });
 
     if (user) {
@@ -82,8 +89,17 @@ exports.register = async (req, res) => {
       res.status(400).json({ message: 'Invalid user data' });
     }
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server Error' });
+    console.error('Registration error:', error);
+    let message = 'Server Error';
+    if (error.name === 'ValidationError') {
+      message = Object.values(error.errors).map(val => val.message).join(', ');
+    } else if (error.code === 11000) {
+      const field = Object.keys(error.keyValue)[0];
+      message = `An account with this ${field} already exists.`;
+    } else if (error.message) {
+      message = error.message;
+    }
+    res.status(500).json({ message });
   }
 };
 
@@ -96,8 +112,15 @@ exports.login = async (req, res) => {
 
     // Check for user email
     const user = await User.findOne({ email })
-      .populate('founderProfile')
-      .populate('investorProfile');
+      .populate({
+        path: 'founderProfile',
+        populate: {
+          path: 'startups',
+          select: 'name logo oneLinePitch slug'
+        }
+      })
+      .populate('investorProfile')
+      .populate('jobSeekerProfile');
 
     if (user && (await user.comparePassword(password))) {
       const token = generateToken(user._id);
@@ -112,7 +135,7 @@ exports.login = async (req, res) => {
     }
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Server Error' });
+    res.status(500).json({ message: error.message || 'Server Error' });
   }
 };
 
@@ -122,9 +145,16 @@ exports.login = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
-      .select('-password')
-      .populate('founderProfile')
-      .populate('investorProfile');
+      .select('-passwordHash -password')
+      .populate({
+        path: 'founderProfile',
+        populate: {
+          path: 'startups',
+          select: 'name logo oneLinePitch slug'
+        }
+      })
+      .populate('investorProfile')
+      .populate('jobSeekerProfile');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -133,6 +163,6 @@ exports.getMe = async (req, res) => {
     res.status(200).json(user.toPublicJSON());
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Server Error' });
+    res.status(500).json({ message: error.message || 'Server Error' });
   }
 };

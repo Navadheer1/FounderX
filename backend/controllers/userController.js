@@ -8,6 +8,8 @@ const { createNotification } = require('../utils/socialHelpers');
 const { uploadFromBuffer } = require('../utils/cloudinary');
 const FounderProfile = require('../models/FounderProfile');
 const InvestorProfile = require('../models/InvestorProfile');
+const JobSeekerProfile = require('../models/JobSeekerProfile');
+const Startup = require('../models/Startup');
 
 // @desc    Get Founder Score and Tips
 // @route   GET /api/users/score
@@ -162,7 +164,13 @@ exports.getUser = async (req, res) => {
             .select('-password')
             .populate('following', 'name username profileImage')
             .populate('followers', 'name username profileImage')
-            .populate('founderProfile')
+            .populate({
+                path: 'founderProfile',
+                populate: {
+                    path: 'startups',
+                    select: 'name logo oneLinePitch slug'
+                }
+            })
             .populate('investorProfile');
 
         if (!user) {
@@ -180,11 +188,21 @@ exports.getUser = async (req, res) => {
 // @access  Public
 exports.getUserByUsername = async (req, res) => {
     try {
-        const user = await User.findOne({ username: req.params.username })
+        const query = req.params.username.match(/^[0-9a-fA-F]{24}$/)
+            ? { $or: [{ username: req.params.username }, { _id: req.params.username }] }
+            : { username: req.params.username };
+
+        const user = await User.findOne(query)
             .select('-password')
             .populate('following', 'name username profileImage')
             .populate('followers', 'name username profileImage')
-            .populate('founderProfile')
+            .populate({
+                path: 'founderProfile',
+                populate: {
+                    path: 'startups',
+                    select: 'name logo oneLinePitch slug'
+                }
+            })
             .populate('investorProfile');
 
         if (!user) {
@@ -311,7 +329,13 @@ exports.updateProfile = async (req, res) => {
         }
 
         // Populate virtuals
-        await user.populate('founderProfile');
+        await user.populate({
+            path: 'founderProfile',
+            populate: {
+                path: 'startups',
+                select: 'name logo oneLinePitch slug'
+            }
+        });
         await user.populate('investorProfile');
 
         const updatedUser = user.toPublicJSON();
@@ -652,6 +676,297 @@ exports.unblockUser = async (req, res) => {
     res.status(200).json({ success: true, data: user.blockedUsers });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Setup Job Seeker Profile
+// @route   POST /api/profile/job-seeker
+// @access  Private
+exports.setupJobSeekerProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (user.role !== 'job_seeker') {
+      return res.status(400).json({ success: false, error: 'User is not registered as a Job Seeker' });
+    }
+
+    const {
+      profilePhoto,
+      bio,
+      skills,
+      education,
+      experience,
+      resume,
+      portfolioLink,
+      github,
+      linkedin,
+      location,
+      preferredJobType,
+      expectedSalary
+    } = req.body;
+
+    let profile = await JobSeekerProfile.findOne({ userId: user._id });
+    if (!profile) {
+      profile = new JobSeekerProfile({ userId: user._id });
+    }
+
+    profile.profilePhoto = profilePhoto || '';
+    profile.bio = bio || '';
+    profile.skills = Array.isArray(skills) ? skills : (skills || '').split(',').map(s => s.trim()).filter(Boolean);
+    profile.education = education || '';
+    profile.experience = experience || '';
+    profile.resume = resume || '';
+    profile.portfolioLink = portfolioLink || '';
+    profile.github = github || '';
+    profile.linkedin = linkedin || '';
+    profile.location = location || '';
+    profile.preferredJobType = preferredJobType || '';
+    profile.expectedSalary = expectedSalary || '';
+
+    await profile.save();
+
+    // Update User model
+    user.bio = bio || '';
+    user.profileImage = profilePhoto || user.profileImage || '';
+    user.skills = profile.skills;
+    if (location) {
+      const parts = location.split(',').map(s => s.trim());
+      user.location = parts.length >= 2
+        ? { city: parts[0], country: parts[parts.length - 1] }
+        : { city: location, country: '' };
+    }
+    user.profileCompleted = true;
+    user.isProfileComplete = true;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Job Seeker profile completed successfully',
+      user: user.toPublicJSON(),
+      profile
+    });
+  } catch (error) {
+    console.error('Error setupJobSeekerProfile:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Setup Founder Profile
+// @route   POST /api/profile/founder
+// @access  Private
+exports.setupFounderProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (user.role !== 'founder') {
+      return res.status(400).json({ success: false, error: 'User is not registered as a Founder' });
+    }
+
+    const {
+      profilePhoto,
+      bio,
+      skills,
+      experience,
+      linkedin,
+      location,
+      startupName,
+      startupLogo,
+      industry,
+      startupStage,
+      problemStatement,
+      solution,
+      website,
+      pitchDeck,
+      fundingNeeded,
+      teamSize
+    } = req.body;
+
+    if (!startupName) {
+      return res.status(400).json({ success: false, error: 'Startup Name is required' });
+    }
+
+    let profile = await FounderProfile.findOne({ userId: user._id });
+    if (!profile) {
+      profile = new FounderProfile({ userId: user._id });
+    }
+
+    profile.profilePhoto = profilePhoto || '';
+    profile.bio = bio || '';
+    profile.skills = Array.isArray(skills) ? skills : (skills || '').split(',').map(s => s.trim()).filter(Boolean);
+    profile.experience = experience || '';
+    profile.linkedin = linkedin || '';
+    profile.location = location || '';
+
+    await profile.save();
+
+    // Create / Update Startup Profile
+    let startup = await Startup.findOne({ founderId: user._id });
+    if (!startup) {
+      startup = new Startup({ founderId: user._id, name: startupName, oneLinePitch: `${industry || 'Tech'} Startup`, description: problemStatement || 'Startup description', contactEmail: user.email, industry: industry || 'Technology' });
+    }
+
+    startup.name = startupName;
+    startup.logo = startupLogo || '';
+    startup.industry = industry || 'Technology';
+    startup.stage = startupStage || 'idea';
+    startup.problemStatement = problemStatement || '';
+    startup.problem = problemStatement || ''; // Compatibility
+    startup.solution = solution || '';
+    startup.description = (problemStatement && solution) ? `${problemStatement}\n\nSolution:\n${solution}` : (problemStatement || solution || 'Startup description');
+    startup.oneLinePitch = `${startupStage || 'Early'} stage startup in ${industry || 'Technology'}`;
+    startup.website = website || '';
+    startup.pitchDeck = pitchDeck || '';
+    startup.fundingNeeded = Number(fundingNeeded) || 0;
+    startup.fundingRequired = Number(fundingNeeded) || 0; // Compatibility
+    startup.teamSize = Number(teamSize) || 1;
+
+    await startup.save();
+
+    // Link startup to founder profile
+    if (!profile.startups.includes(startup._id)) {
+      profile.startups.push(startup._id);
+      await profile.save();
+    }
+
+    // Update User model
+    user.bio = bio || '';
+    user.profileImage = profilePhoto || user.profileImage || '';
+    user.skills = profile.skills;
+    if (location) {
+      const parts = location.split(',').map(s => s.trim());
+      user.location = parts.length >= 2
+        ? { city: parts[0], country: parts[parts.length - 1] }
+        : { city: location, country: '' };
+    }
+    user.profileCompleted = true;
+    user.isProfileComplete = true;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Founder and Startup profiles completed successfully',
+      user: user.toPublicJSON(),
+      profile,
+      startup
+    });
+  } catch (error) {
+    console.error('Error setupFounderProfile:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Setup Investor Profile
+// @route   POST /api/profile/investor
+// @access  Private
+exports.setupInvestorProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (user.role !== 'investor') {
+      return res.status(400).json({ success: false, error: 'User is not registered as an Investor' });
+    }
+
+    const {
+      profilePhoto,
+      bio,
+      investorType,
+      investmentMin,
+      investmentMax,
+      preferredIndustries,
+      location,
+      portfolioCompanies,
+      linkedin,
+      website
+    } = req.body;
+
+    let profile = await InvestorProfile.findOne({ userId: user._id });
+    if (!profile) {
+      profile = new InvestorProfile({ userId: user._id });
+    }
+
+    profile.profilePhoto = profilePhoto || '';
+    profile.bio = bio || '';
+    profile.investorType = investorType || 'Angel';
+    profile.investmentMin = Number(investmentMin) || 0;
+    profile.investmentMax = Number(investmentMax) || 0;
+    profile.preferredIndustries = Array.isArray(preferredIndustries) ? preferredIndustries : (preferredIndustries || '').split(',').map(s => s.trim()).filter(Boolean);
+    profile.location = location || '';
+    profile.portfolioCompanies = Array.isArray(portfolioCompanies) ? portfolioCompanies : (portfolioCompanies || '').split(',').map(s => s.trim()).filter(Boolean);
+    profile.linkedin = linkedin || '';
+    profile.website = website || '';
+
+    // Compatibility fields mapping
+    profile.ticket_size_min = profile.investmentMin;
+    profile.ticket_size_max = profile.investmentMax;
+    profile.ticketSize = { min: profile.investmentMin, max: profile.investmentMax };
+    profile.investor_type = investorType;
+    profile.preferred_industries = profile.preferredIndustries;
+
+    await profile.save();
+
+    // Update User model
+    user.bio = bio || '';
+    user.profileImage = profilePhoto || user.profileImage || '';
+    user.skills = profile.preferredIndustries;
+    if (location) {
+      const parts = location.split(',').map(s => s.trim());
+      user.location = parts.length >= 2
+        ? { city: parts[0], country: parts[parts.length - 1] }
+        : { city: location, country: '' };
+    }
+    user.profileCompleted = true;
+    user.isProfileComplete = true;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Investor profile completed successfully',
+      user: user.toPublicJSON(),
+      profile
+    });
+  } catch (error) {
+    console.error('Error setupInvestorProfile:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+// @desc    Change password
+// @route   PUT /api/users/change-password
+// @access  Private
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, error: 'Please fill in all fields' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, error: 'Incorrect current password' });
+    }
+
+    user.passwordHash = newPassword;
+    await user.save();
+
+    res.status(200).json({ success: true, message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error changing password:', error);
     res.status(500).json({ success: false, error: 'Server Error' });
   }
 };

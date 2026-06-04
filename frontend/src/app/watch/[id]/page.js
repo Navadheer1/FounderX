@@ -247,7 +247,7 @@ export default function VideoPlayerPage() {
                     
                     <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-gray-100 gap-4">
                         <div className="flex items-center gap-4">
-                            <Link href={isStartup ? `/startup/${post.startupId._id}` : `/profile/${post.authorId._id}`} className="flex-shrink-0">
+                            <Link href={isStartup ? `/startup/${post.startupId._id}` : (user && (user._id === post.authorId?._id || user.username === post.authorId?.username) ? `/profile` : `/profile/${post.authorId?.username || post.authorId?._id}`)} className="flex-shrink-0">
                                 <div className="h-10 w-10 rounded-full bg-gray-100 overflow-hidden">
                                     {authorImage ? (
                                         <img src={authorImage} alt={authorName} className="h-full w-full object-cover" />
@@ -259,7 +259,7 @@ export default function VideoPlayerPage() {
                                 </div>
                             </Link>
                             <div>
-                            <Link href={isStartup ? `/startups/${post.startupId._id}` : `/profile/${post.authorId._id}`} className="font-bold text-gray-900 hover:text-red-600 transition block">
+                            <Link href={isStartup ? `/startups/${post.startupId._id}` : (user && (user._id === post.authorId?._id || user.username === post.authorId?.username) ? `/profile` : `/profile/${post.authorId?.username || post.authorId?._id}`)} className="font-bold text-gray-900 hover:text-red-600 transition block">
                                     {authorName}
                                 </Link>
                                 <span className="text-sm text-gray-500">

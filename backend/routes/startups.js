@@ -15,7 +15,14 @@ const {
   getStartupInvestmentRequests,
   updateApplicationStatus,
   updateInvestmentRequestStatus,
-  getStartupBadge
+  getStartupBadge,
+  followStartup,
+  unfollowStartup,
+  saveStartup,
+  unsaveStartup,
+  getStartupJobs,
+  createStartupJob,
+  createStartupRoleRequest
 } = require('../controllers/startupController');
 
 const { protect, authorize, optionalProtect } = require('../middleware/auth');
@@ -27,8 +34,21 @@ router
   .get(optionalProtect, getStartups)
   .post(protect, authorize('founder', 'admin'), createStartup);
 
+router.route('/:id/follow')
+  .post(protect, followStartup)
+  .delete(protect, unfollowStartup);
+
+router.route('/:id/save')
+  .post(protect, saveStartup)
+  .delete(protect, unsaveStartup);
+
+router.route('/:id/jobs')
+  .get(getStartupJobs)
+  .post(protect, createStartupJob);
+
 router.put('/save/:id', protect, toggleSaveStartup);
 router.post('/:id/apply', protect, applyToStartup);
+router.post('/:id/role-request', protect, createStartupRoleRequest);
 router.post('/:id/invest', protect, requestInvestment);
 router.post('/:id/report', protect, reportStartup);
 router.get('/:id/analytics', protect, getStartupAnalytics);

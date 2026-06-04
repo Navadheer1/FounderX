@@ -25,7 +25,9 @@ export default function ChatWindow({
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   
+  const isGroup = conversation?.type === 'group' || conversation?.isGroup;
   const otherParticipant = conversation?.participants?.find(p => p._id !== currentUser?._id) || {};
+  const chatName = isGroup ? (conversation?.groupName || 'Group Chat') : (otherParticipant.name || 'User');
   const isPending = conversation?.status === 'pending';
   const isAccepted = conversation?.status === 'accepted';
   const isDeclined = conversation?.status === 'declined';
@@ -120,29 +122,41 @@ export default function ChatWindow({
       {/* Header */}
       <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white z-10">
         <div className="flex items-center space-x-3">
-          <div className="h-10 w-10 rounded-full bg-gray-200 overflow-hidden relative">
-            {otherParticipant.profileImage ? (
+          <div className="h-10 w-10 rounded-full bg-gray-200 overflow-hidden relative flex-shrink-0">
+            {isGroup ? (
+              <div className="h-full w-full flex items-center justify-center bg-indigo-100 text-indigo-750 font-bold text-sm">
+                {conversation.groupName ? conversation.groupName.split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase() : 'GP'}
+              </div>
+            ) : otherParticipant.profileImage ? (
               <img src={otherParticipant.profileImage} alt="" className="h-full w-full object-cover" />
             ) : (
               <div className="h-full w-full flex items-center justify-center bg-blue-100 text-primary font-bold">
-                {otherParticipant.name?.charAt(0)}
+                {chatName.charAt(0)}
               </div>
             )}
-            {otherParticipant.isOnline && (
+            {!isGroup && otherParticipant.isOnline && (
                 <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
             )}
           </div>
           <div>
-            <h3 className="font-bold text-heading">{otherParticipant.name}</h3>
+            <h3 className="font-bold text-heading">{chatName}</h3>
             <div className="flex items-center text-xs text-gray-500 space-x-2">
-                <span className="capitalize">{otherParticipant.role}</span>
-                {otherParticipant.isOnline && (
-                    <span className="text-green-500 font-medium ml-1">Online</span>
-                )}
-                {!otherParticipant.isOnline && otherParticipant.lastSeen && (
-                    <span className="text-gray-400 ml-1" suppressHydrationWarning>
-                        Last seen {formatDistanceToNow(new Date(otherParticipant.lastSeen), { addSuffix: true })}
+                {isGroup ? (
+                    <span className="truncate max-w-[280px]">
+                      Members: {conversation?.participants?.map(p => p.name || p.fullName || 'User').join(', ')}
                     </span>
+                ) : (
+                    <>
+                      <span className="capitalize">{otherParticipant.role || 'User'}</span>
+                      {otherParticipant.isOnline && (
+                          <span className="text-green-500 font-medium ml-1">Online</span>
+                      )}
+                      {!otherParticipant.isOnline && otherParticipant.lastSeen && (
+                          <span className="text-gray-400 ml-1" suppressHydrationWarning>
+                              Last seen {formatDistanceToNow(new Date(otherParticipant.lastSeen), { addSuffix: true })}
+                          </span>
+                      )}
+                    </>
                 )}
             </div>
           </div>
@@ -183,12 +197,12 @@ export default function ChatWindow({
                 return (
                     <div key={msg._id} className={`flex ${isMe ? 'justify-end' : 'justify-start items-end space-x-2'} group relative`}>
                         {!isMe && (
-                            <div className="h-8 w-8 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 mb-1" style={{ opacity: showAvatar ? 1 : 0 }}>
-                                {otherParticipant.profileImage ? (
-                                    <img src={otherParticipant.profileImage} alt="" className="h-full w-full object-cover" />
+                            <div className="h-8 w-8 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 mb-1" style={{ opacity: showAvatar ? 1 : 0 }} title={msg.sender?.name || otherParticipant.name}>
+                                {msg.sender?.profileImage ? (
+                                    <img src={msg.sender.profileImage} alt="" className="h-full w-full object-cover" />
                                 ) : (
                                     <div className="h-full w-full flex items-center justify-center bg-blue-100 text-primary text-xs font-bold">
-                                        {otherParticipant.name?.charAt(0)}
+                                        {(msg.sender?.name || otherParticipant.name || '?').charAt(0)}
                                     </div>
                                 )}
                             </div>
@@ -239,6 +253,11 @@ export default function ChatWindow({
                                 ? 'bg-primary text-white rounded-br-none' 
                                 : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
                             }`}>
+                                {!isMe && isGroup && (
+                                    <div className="text-[11px] font-bold text-primary mb-1">
+                                        {msg.sender?.name || 'User'}
+                                    </div>
+                                )}
                                 {msg.replyTo && (
                                     <div className={`mb-2 p-2 rounded text-xs border-l-2 ${
                                         isMe 
@@ -321,7 +340,11 @@ export default function ChatWindow({
         {isOtherTyping && (
             <div className="flex justify-start items-end space-x-2">
                 <div className="h-8 w-8 rounded-full bg-gray-200 overflow-hidden flex-shrink-0 mb-1">
-                    {otherParticipant.profileImage ? (
+                    {isGroup ? (
+                        <div className="h-full w-full flex items-center justify-center bg-indigo-50 text-indigo-650 text-[10px] font-bold">
+                            ...
+                        </div>
+                    ) : otherParticipant.profileImage ? (
                         <img src={otherParticipant.profileImage} alt="" className="h-full w-full object-cover" />
                     ) : (
                         <div className="h-full w-full flex items-center justify-center bg-blue-100 text-primary text-xs font-bold">

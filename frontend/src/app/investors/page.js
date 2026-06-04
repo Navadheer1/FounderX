@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import Navbar from '../../components/Navbar';
 import Link from 'next/link';
 import { 
@@ -324,12 +325,75 @@ function StartupFundingCard({ startup }) {
   );
 }
 
-// Pitch Submission Modal (Simulated modal)
+// Pitch Submission Modal (Real connection request)
 function PitchSubmissionModal({ isOpen, onClose, investor }) {
-  const [formData, setFormData] = useState({
-    startupName: '',
-    shortPitch: ''
-  });
+  const { user, token } = useAuth();
+  const [startups, setStartups] = useState([]);
+  const [selectedStartupId, setSelectedStartupId] = useState('');
+  const [message, setMessage] = useState('');
+  const [investmentRange, setInvestmentRange] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchMyStartups = async () => {
+      try {
+        if (!token) return;
+        const res = await fetch('http://localhost:5000/api/startups', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          const myStartups = json.data.filter(s => s.founderId === user?._id || s.founderId?._id === user?._id);
+          setStartups(myStartups);
+          if (myStartups.length > 0) {
+            setSelectedStartupId(myStartups[0]._id);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching my startups:', err);
+      }
+    };
+
+    if (isOpen && user && token) {
+      fetchMyStartups();
+    }
+  }, [isOpen, user, token]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedStartupId) {
+      alert('Please select a startup first. If you do not have one, create it first!');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/investor/interest-request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          startupId: selectedStartupId,
+          investorId: investor._id,
+          message,
+          investmentRange
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Investment request sent successfully!');
+        onClose();
+      } else {
+        alert(data.error || 'Failed to send investment request.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error sending investment request.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -338,24 +402,66 @@ function PitchSubmissionModal({ isOpen, onClose, investor }) {
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-900">Connect with {investor?.name}</h2>
+          <h2 className="text-xl font-bold text-slate-900 font-sans">Connect with {investor?.name}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="p-6 space-y-4">
-          <p className="text-sm text-slate-500">Send an invitation to connect with this investor. They will be notified.</p>
-          <button onClick={() => { alert('Connection request sent!'); onClose(); }} className="w-full btn-primary py-3 rounded-xl font-bold">
-            Send Connection Request
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1 font-sans">Select Startup</label>
+            {startups.length > 0 ? (
+              <select
+                value={selectedStartupId}
+                onChange={(e) => setSelectedStartupId(e.target.value)}
+                className="w-full p-2.5 border border-slate-200 rounded-xl bg-white text-sm"
+                required
+              >
+                {startups.map(s => (
+                  <option key={s._id} value={s._id}>{s.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="text-xs text-red-500 font-medium p-2 bg-red-50 rounded-lg">
+                No startups found. Please create a startup profile first!
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1 font-sans">Message / Elevator Pitch</label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Brief introduction or pitch..."
+              className="w-full p-3 border border-slate-200 rounded-xl text-sm h-28"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1 font-sans">Target Investment Range (Optional)</label>
+            <input
+              type="text"
+              value={investmentRange}
+              onChange={(e) => setInvestmentRange(e.target.value)}
+              placeholder="e.g. $50,000 - $100,000"
+              className="w-full p-2.5 border border-slate-200 rounded-xl text-sm"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading || startups.length === 0}
+            className="w-full btn-primary py-3 rounded-xl font-bold font-sans disabled:opacity-50"
+          >
+            {loading ? 'Sending...' : 'Send Connection Request'}
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );
 }
 
 // Investor Profile Modal
-function InvestorProfileModal({ investor, isOpen, onClose }) {
+function InvestorProfileModal({ investor, isOpen, onClose, onConnect }) {
   if (!isOpen || !investor) return null;
   const preferredStages = investor.roleProfile?.preferredStages || [];
   const preferredIndustries = investor.roleProfile?.preferred_industries || investor.roleProfile?.preferredIndustries || [];
@@ -436,7 +542,7 @@ function InvestorProfileModal({ investor, isOpen, onClose }) {
           </div>
 
           <div className="mt-8 pt-6 border-t border-gray-200 flex justify-end gap-3">
-            <button onClick={() => { alert('Connection request sent!'); onClose(); }} className="btn-primary px-6 py-2">Connect</button>
+            <button onClick={() => { onConnect(); onClose(); }} className="btn-primary px-6 py-2">Connect</button>
             <button onClick={onClose} className="btn-secondary px-6 py-2">Close</button>
           </div>
         </div>
@@ -676,6 +782,7 @@ export default function InvestorsPage() {
         isOpen={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
         investor={selectedInvestor}
+        onConnect={() => setPitchModalOpen(true)}
       />
     </div>
   );

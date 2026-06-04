@@ -15,6 +15,30 @@
   --danger: #EF4444;
 }
 
+.dark {
+  --background: #0F172A;
+  --foreground: #F8FAFC;
+  --card: #1E293B;
+  --card-border: #334155;
+  --muted: #94A3B8;
+  --muted-light: #475569;
+}
+
+.dark body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.dark .card {
+  background: var(--card);
+  border-color: var(--card-border);
+}
+
+.dark .glassmorphism {
+  background: rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -125,3 +149,62 @@ body {
 html {
   scroll-behavior: smooth;
 }
+
+/* Admin Dashboard theme transitions */
+.dark .admin-panel .bg-white,
+.dark .admin-panel aside,
+.dark .admin-panel .card,
+.dark .admin-panel div.bg-white {
+  background-color: var(--card) !important;
+  color: var(--foreground) !important;
+  border-color: var(--card-border) !important;
+}
+
+.dark .admin-panel .bg-slate-50,
+.dark .admin-panel input,
+.dark .admin-panel select,
+.dark .admin-panel textarea,
+.dark .admin-panel div.bg-slate-50,
+.dark .admin-panel table th,
+.dark .admin-panel table tr {
+  background-color: #0F172A !important;
+  color: var(--foreground) !important;
+  border-color: var(--card-border) !important;
+}
+
+.dark .admin-panel text {
+  fill: var(--foreground) !important;
+}
+
+.dark .admin-panel line {
+  stroke: var(--card-border) !important;
+}
+
+.dark .admin-panel .text-slate-900,
+.dark .admin-panel .text-slate-950,
+.dark .admin-panel .text-slate-800,
+.dark .admin-panel .text-slate-700,
+.dark .admin-panel span.text-slate-900 {
+  color: var(--foreground) !important;
+}
+
+.dark .admin-panel .text-slate-500,
+.dark .admin-panel .text-slate-400 {
+  color: var(--muted) !important;
+}
+
+.dark .admin-panel button.bg-slate-100 {
+  background-color: #1E293B !important;
+  color: var(--foreground) !important;
+}
+
+.dark .admin-panel button.bg-slate-100:hover {
+  background-color: #334155 !important;
+}
+
+.dark .admin-panel .border-slate-100,
+.dark .admin-panel .border-slate-200,
+.dark .admin-panel .border-slate-200\/80 {
+  border-color: var(--card-border) !important;
+}
+

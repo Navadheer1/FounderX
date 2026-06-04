@@ -12,16 +12,38 @@ import { useRouter } from 'next/navigation';
 import FollowButton from '../FollowButton';
 
 export default function PublicStartupView({ startup }) {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const profileUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const [isFollowing, setIsFollowing] = useState(
+    user && startup.saves ? startup.saves.some(s => s.userId === user._id || s.userId?._id === user._id) : false
+  );
 
   const handleMessage = () => {
     if (!user) {
       router.push('/auth/login');
       return;
     }
-    router.push(`/messages?userId=${startup.founderId._id}`);
+    router.push(`/messages?userId=${startup.founderId?._id || startup.founderId}`);
+  };
+
+  const handleFollowToggle = async () => {
+    if (!token) {
+      router.push('/auth/login');
+      return;
+    }
+    try {
+      const res = await fetch(`http://localhost:5000/api/startups/save/${startup._id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsFollowing(data.data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   return (
@@ -91,12 +113,14 @@ export default function PublicStartupView({ startup }) {
 
               <div className="flex flex-col gap-3 min-w-[140px]">
                 <ShareButton title={`Check out ${startup.name} on FounderX`} url={profileUrl} />
-                <Link 
-                  href="/auth/register"
-                  className="px-4 py-2 bg-primary text-white text-center font-medium rounded-lg hover:bg-blue-700 transition shadow-sm"
+                <button 
+                  onClick={handleFollowToggle}
+                  className={`px-4 py-2 text-center font-medium rounded-lg transition shadow-sm ${
+                    isFollowing ? 'bg-slate-200 text-slate-800' : 'bg-primary text-white hover:bg-blue-700'
+                  }`}
                 >
-                  Follow
-                </Link>
+                  {isFollowing ? 'Following' : 'Follow'}
+                </button>
               </div>
             </div>
           </div>

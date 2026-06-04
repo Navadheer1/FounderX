@@ -104,7 +104,9 @@ export default function ChatList({
           </div>
         ) : (
           filteredConversations.map(conv => {
+            const isGroup = conv.type === 'group' || conv.isGroup;
             const other = getOtherParticipant(conv);
+            const chatName = isGroup ? (conv.groupName || 'Group Chat') : (other.name || 'User');
             const isActive = activeConversation?._id === conv._id;
             const isUnread = conv.unreadCount?.[currentUser?._id] > 0;
             
@@ -118,16 +120,20 @@ export default function ChatList({
               >
                 <div className="relative h-12 w-12 flex-shrink-0">
                     <div className="h-12 w-12 rounded-full bg-gray-200 overflow-hidden">
-                        {other.profileImage ? (
-                            <img src={other.profileImage} alt={other.name} className="h-full w-full object-cover" />
+                        {isGroup ? (
+                            <div className="h-full w-full flex items-center justify-center bg-indigo-100 text-indigo-750 font-bold text-sm">
+                            {conv.groupName ? conv.groupName.split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase() : 'GP'}
+                            </div>
+                        ) : other.profileImage ? (
+                            <img src={other.profileImage} alt={chatName} className="h-full w-full object-cover" />
                         ) : (
                             <div className="h-full w-full flex items-center justify-center bg-blue-100 text-primary font-bold">
-                            {other.name?.charAt(0)}
+                            {chatName?.charAt(0)}
                             </div>
                         )}
                     </div>
                     {/* Online Status Indicator */}
-                    {other.isOnline && (
+                    {!isGroup && other.isOnline && (
                         <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white rounded-full"></div>
                     )}
                 </div>
@@ -135,7 +141,7 @@ export default function ChatList({
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline mb-1">
                     <h3 className={`text-sm truncate ${isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-700'}`}>
-                        {other.name}
+                        {chatName}
                     </h3>
                     {conv.lastMessage?.createdAt && (
                       <span className={`text-xs flex-shrink-0 ${isUnread ? 'text-primary font-medium' : 'text-gray-400'}`} suppressHydrationWarning>

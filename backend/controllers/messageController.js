@@ -10,17 +10,82 @@ const { createNotification } = require('../utils/socialHelpers');
 exports.sendMessage = async (req, res) => {
   try {
     const { recipientId, content, type = 'text', mediaUrl, replyTo } = req.body;
+    const senderId = req.user.id;
 
     if (!recipientId || (!content && !mediaUrl)) {
       return res.status(400).json({ success: false, error: 'Recipient and content/media are required' });
     }
 
-    // 1. Check for existing Conversation
-    // Check if recipient has blocked the sender
     const recipientUser = await User.findById(recipientId);
-    if (recipientUser && recipientUser.blockedUsers && recipientUser.blockedUsers.includes(req.user.id)) {
-        return res.status(403).json({ success: false, error: 'You have been blocked by this user' });
+    if (!recipientUser) {
+      return res.status(404).json({ success: false, error: 'Recipient user not found' });
     }
+
+    if (recipientUser.blockedUsers && recipientUser.blockedUsers.includes(senderId)) {
+      return res.status(403).json({ success: false, error: 'You have been blocked by this user' });
+    }
+
+    // Connection Check: Mutual follow, shared startup team, or accepted investment request
+    const senderUser = await User.findById(senderId);
+    const isMutualFollow = senderUser.following.includes(recipientId) && recipientUser.following.includes(senderId);
+
+    const Startup = require('../models/Startup');
+    const sharedStartup = await Startup.findOne({
+      $or: [
+        { founderId: senderId, 'teamMembers.userId': recipientId },
+        { founderId: recipientId, 'teamMembers.userId': senderId },
+        { 'teamMembers.userId': { $all: [senderId, recipientId] } }
+      ]
+    });
+
+    const InvestmentRequest = require('../models/InvestmentRequest');
+    const hasAcceptedInvestmentRequest = await InvestmentRequest.findOne({
+      status: 'accepted',
+      $or: [
+        { investorId: senderId, founderId: recipientId },
+        { investorId: recipientId, founderId: senderId }
+      ]
+    });
+
+    const Application = require('../models/Application');
+    let hasAcceptedJobApplication = await Application.findOne({
+      status: { $in: ['connected', 'accepted', 'hired'] },
+      $or: [
+        { applicantId: senderId, startupId: { $in: await Startup.find({ founderId: recipientId }).distinct('_id') } },
+        { applicantId: recipientId, startupId: { $in: await Startup.find({ founderId: senderId }).distinct('_id') } }
+      ]
+    });
+
+    if (!hasAcceptedJobApplication) {
+      const JobApplication = require('../models/JobApplication');
+      hasAcceptedJobApplication = await JobApplication.findOne({
+        status: { $in: ['connected', 'accepted', 'hired'] },
+        $or: [
+          { applicantId: senderId, startupId: { $in: await Startup.find({ founderId: recipientId }).distinct('_id') } },
+          { applicantId: recipientId, startupId: { $in: await Startup.find({ founderId: senderId }).distinct('_id') } }
+        ]
+      });
+    }
+
+    if (!hasAcceptedJobApplication) {
+      const StartupRoleRequest = require('../models/StartupRoleRequest');
+      hasAcceptedJobApplication = await StartupRoleRequest.findOne({
+        status: { $in: ['connected', 'accepted', 'hired'] },
+        $or: [
+          { applicantId: senderId, startupId: { $in: await Startup.find({ founderId: recipientId }).distinct('_id') } },
+          { applicantId: recipientId, startupId: { $in: await Startup.find({ founderId: senderId }).distinct('_id') } }
+        ]
+      });
+    }
+
+    if (!isMutualFollow && !sharedStartup && !hasAcceptedInvestmentRequest && !hasAcceptedJobApplication) {
+      return res.status(400).json({
+        success: false,
+        error: 'You must follow each other, be in the same startup team, have an accepted investment request, or have an accepted job application to start chatting.'
+      });
+    }
+
+    // 1. Check for existing Conversation
 
     let conversation = await Conversation.findOne({
       participants: { $all: [req.user.id, recipientId] }
@@ -376,8 +441,23 @@ exports.getConversations = async (req, res) => {
         };
     });
 
-    // 4. Merge
-    const all = [...conversations, ...requestConvs].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    // 4. Merge and Deduplicate by other participant's User ID
+    const merged = [...conversations, ...requestConvs].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    
+    const uniqueMap = new Map();
+    for (const c of merged) {
+      if (!c.participants || c.participants.length === 0) continue;
+      
+      const otherUser = c.participants.find(p => p && p._id && p._id.toString() !== req.user.id);
+      if (!otherUser) continue;
+      
+      const otherUserId = otherUser._id.toString();
+      if (!uniqueMap.has(otherUserId)) {
+        uniqueMap.set(otherUserId, c);
+      }
+    }
+    
+    const all = Array.from(uniqueMap.values());
 
     res.status(200).json({
       success: true,
@@ -637,4 +717,90 @@ exports.deleteMessage = async (req, res) => {
         console.error(error);
         res.status(500).json({ success: false, error: 'Server Error' });
     }
+};
+
+// @desc    Check if chat is authorized with user
+// @route   GET /api/messages/can-chat/:userId
+// @access  Private
+exports.checkCanChat = async (req, res) => {
+  try {
+    const recipientId = req.params.userId;
+    const senderId = req.user.id;
+
+    if (recipientId === senderId) {
+      return res.status(200).json({ success: true, canChat: false });
+    }
+
+    const recipientUser = await User.findById(recipientId);
+    if (!recipientUser) {
+      return res.status(204).json({ success: true, canChat: false }); // Safe default if user doesn't exist
+    }
+
+    const senderUser = await User.findById(senderId);
+
+    // 1. Check mutual follow
+    const isMutualFollow = senderUser.following.includes(recipientId) && recipientUser.following.includes(senderId);
+
+    // 2. Check shared startup team
+    const Startup = require('../models/Startup');
+    const sharedStartup = await Startup.findOne({
+      $or: [
+        { founderId: senderId, 'teamMembers.userId': recipientId },
+        { founderId: recipientId, 'teamMembers.userId': senderId },
+        { 'teamMembers.userId': { $all: [senderId, recipientId] } }
+      ]
+    });
+
+    // 3. Check accepted investment request
+    const InvestmentRequest = require('../models/InvestmentRequest');
+    const hasAcceptedInvestmentRequest = await InvestmentRequest.findOne({
+      status: 'accepted',
+      $or: [
+        { investorId: senderId, founderId: recipientId },
+        { investorId: recipientId, founderId: senderId }
+      ]
+    });
+
+    // 4. Check accepted job application
+    const Application = require('../models/Application');
+    let hasAcceptedJobApplication = await Application.findOne({
+      status: { $in: ['connected', 'accepted', 'hired'] },
+      $or: [
+        { applicantId: senderId, startupId: { $in: await Startup.find({ founderId: recipientId }).distinct('_id') } },
+        { applicantId: recipientId, startupId: { $in: await Startup.find({ founderId: senderId }).distinct('_id') } }
+      ]
+    });
+
+    if (!hasAcceptedJobApplication) {
+      const JobApplication = require('../models/JobApplication');
+      hasAcceptedJobApplication = await JobApplication.findOne({
+        status: { $in: ['connected', 'accepted', 'hired'] },
+        $or: [
+          { applicantId: senderId, startupId: { $in: await Startup.find({ founderId: recipientId }).distinct('_id') } },
+          { applicantId: recipientId, startupId: { $in: await Startup.find({ founderId: senderId }).distinct('_id') } }
+        ]
+      });
+    }
+
+    if (!hasAcceptedJobApplication) {
+      const StartupRoleRequest = require('../models/StartupRoleRequest');
+      hasAcceptedJobApplication = await StartupRoleRequest.findOne({
+        status: { $in: ['connected', 'accepted', 'hired'] },
+        $or: [
+          { applicantId: senderId, startupId: { $in: await Startup.find({ founderId: recipientId }).distinct('_id') } },
+          { applicantId: recipientId, startupId: { $in: await Startup.find({ founderId: senderId }).distinct('_id') } }
+        ]
+      });
+    }
+
+    const canChat = !!(isMutualFollow || sharedStartup || hasAcceptedInvestmentRequest || hasAcceptedJobApplication);
+
+    res.status(200).json({
+      success: true,
+      canChat
+    });
+  } catch (error) {
+    console.error('Error checking can-chat status:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
 };

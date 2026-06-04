@@ -214,7 +214,11 @@ export default function PostCard({ post: initialPost, darkTheme = false, refresh
   // Link to profile or startup page
   const profileLink = post.startupId?._id 
     ? `/startups/${post.startupId._id}` 
-    : (post.authorId?._id ? `/profile/${post.authorId._id}` : '#');
+    : (post.authorId?._id 
+        ? (user && (user._id === post.authorId._id || user.username === post.authorId.username) 
+            ? `/profile` 
+            : `/profile/${post.authorId.username || post.authorId._id}`) 
+        : '#');
 
   return (
     <div className={`${cardBg} rounded-2xl shadow-sm border overflow-hidden mb-6`}>
@@ -282,7 +286,7 @@ export default function PostCard({ post: initialPost, darkTheme = false, refresh
       {/* Reply Indicator */}
       {post.parentPostId && typeof post.parentPostId === 'object' && post.parentPostId.authorId && (
         <div className="px-4 pb-1 text-sm text-gray-500">
-          Replying to <Link href={`/profile/${post.parentPostId.authorId.username}`} className="text-primary hover:underline">@{post.parentPostId.authorId.username}</Link>
+          Replying to <Link href={user && (user._id === post.parentPostId.authorId._id || user.username === post.parentPostId.authorId.username) ? `/profile` : `/profile/${post.parentPostId.authorId.username || post.parentPostId.authorId._id}`} className="text-primary hover:underline">@{post.parentPostId.authorId.username || 'user'}</Link>
         </div>
       )}
 

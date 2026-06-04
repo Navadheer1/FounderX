@@ -527,11 +527,34 @@ export default function InvestorDashboard() {
   const [requestedStartups, setRequestedStartups] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedStartup, setSelectedStartup] = useState(null);
-
   const [openToInvest, setOpenToInvest] = useState(true);
   const [togglingOpen, setTogglingOpen] = useState(false);
 
   // Sync with user's profile open_to_invest setting
+  useEffect(() => {
+    if (loading) return;
+
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
+
+    if (!user.profileCompleted && !user.isProfileComplete) {
+      router.push('/profile/setup');
+      return;
+    }
+
+    if (user.role !== 'investor') {
+      if (user.role === 'founder') {
+        router.push('/dashboard/founder');
+      } else if (user.role === 'job_seeker') {
+        router.push('/dashboard/job-seeker');
+      } else {
+        router.push('/profile/setup');
+      }
+    }
+  }, [user, loading, router]);
+
   useEffect(() => {
     if (user && user.roleProfile) {
       setOpenToInvest(user.roleProfile.open_to_invest !== false);

@@ -18,7 +18,7 @@ const investmentRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'reviewed', 'accepted', 'declined'],
+    enum: ['pending', 'reviewed', 'accepted', 'declined', 'rejected', 'closed'],
     default: 'pending'
   },
   message: String,

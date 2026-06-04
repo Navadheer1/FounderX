@@ -9,7 +9,8 @@ const {
   markRead,
   reactToMessage,
   editMessage,
-  deleteMessage
+  deleteMessage,
+  checkCanChat
 } = require('../controllers/messageController');
 
 const router = express.Router();
@@ -21,6 +22,9 @@ router.route('/')
 
 router.route('/conversations')
   .get(getConversations);
+
+router.route('/can-chat/:userId')
+  .get(checkCanChat);
 
 router.route('/:conversationId')
   .get(getMessages);

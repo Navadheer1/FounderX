@@ -365,18 +365,52 @@ function AIQuickActions() {
 }
 
 export default function UserDashboard() {
-  const { user, loading } = useAuth();
+  const { user, loading, token } = useAuth();
   const router = useRouter();
   const [data, setData] = useState(demoData);
+  const [fetching, setFetching] = useState(true);
 
-  // Temporarily disabled for testing - uncomment when auth is ready
-  // useEffect(() => {
-  //   if (!loading && (!user)) {
-  //     router.push('/auth/login');
-  //   }
-  // }, [user, loading, router]);
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/auth/login');
+    }
+  }, [user, loading, router]);
 
-  if (loading) {
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        if (!token) return;
+        const res = await fetch('http://localhost:5000/api/dashboard/user', {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        const json = await res.json();
+        if (json.success && json.data) {
+          setData({
+            ...demoData,
+            ...json.data,
+            analytics: {
+              ...demoData.analytics,
+              ...json.data.analytics
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching user dashboard:', err);
+      } finally {
+        setFetching(false);
+      }
+    };
+
+    if (user && token) {
+      fetchDashboardData();
+    } else if (!loading && !user) {
+      setFetching(false);
+    }
+  }, [user, token, loading]);
+
+  if (loading || (fetching && token)) {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />

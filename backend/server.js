@@ -25,6 +25,8 @@ const investorRoutes = require('./routes/investor');
 const watchlistRoutes = require('./routes/watchlist');
 const uploadRoutes = require('./routes/upload');
 const assistantRoutes = require('./routes/assistant');
+const teamInvitationRoutes = require('./routes/teamInvitations');
+const adminRoutes = require('./routes/admin');
 
 // Import Models for Socket Logic
 const User = require('./models/User');
@@ -208,8 +210,14 @@ app.use('/api/verification', verificationRoutes);
 app.use('/api/videos', require('./routes/videos'));
 app.use('/api/investor', investorRoutes);
 app.use('/api/watchlist', watchlistRoutes);
+app.use('/api/reports', require('./routes/reports'));
+app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/assistant', assistantRoutes);
+app.use('/api/team-invitations', teamInvitationRoutes);
+app.use('/api/jobs', require('./routes/jobs'));
+app.use('/api/job-seeker', require('./routes/jobSeeker'));
+app.use('/api/founder', require('./routes/founder'));
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

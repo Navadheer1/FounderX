@@ -133,7 +133,8 @@ export default function VideoDetailPage() {
       const res = await fetch(`${API_URL}/api/startups?founderId=${founderId}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-        setStartup(data.data[0]);
+        const item = data.data[0];
+        setStartup(item.startup || item);
       }
     } catch (err) {
       console.error('Error fetching founder startup:', err);

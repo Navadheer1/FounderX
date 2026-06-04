@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import Navbar from '../../components/Navbar';
 import Link from 'next/link';
-import { Bell, Heart, MessageCircle, Repeat, UserPlus, Check } from 'lucide-react';
+import { Bell, Heart, MessageCircle, Repeat, UserPlus, Check, X, DollarSign, Users, Briefcase } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useRouter } from 'next/navigation';
 
@@ -55,11 +55,8 @@ export default function NotificationsPage() {
       
       const contentType = res.headers.get("content-type");
       if (res.ok && contentType && contentType.includes("application/json")) {
-         // Optionally parse if needed, but we just check ok
-         // const data = await res.json();
          setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       } else if (res.ok) {
-        // If ok but not json (e.g. 204 or empty), still success
         setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       }
     } catch (error) {
@@ -81,6 +78,49 @@ export default function NotificationsPage() {
     }
   };
 
+  const handleAction = async (e, type, id, action) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const token = localStorage.getItem('token');
+    try {
+      let method = 'PUT';
+      let url = '';
+      let body = {};
+      
+      if (type === 'co_founder_invite') {
+        url = `http://localhost:5000/api/team-invitations/${id}/status`;
+        body = { status: action === 'accept' ? 'accepted' : 'rejected' };
+      } else if (type === 'investment_request') {
+        url = `http://localhost:5000/api/startups/investment-requests/${id}/status`;
+        body = { status: action === 'accept' ? 'accepted' : 'rejected' };
+      } else if (type === 'role_request') {
+        url = `http://localhost:5000/api/founder/role-requests/${id}/status`;
+        body = { status: action === 'accept' ? 'accepted' : 'rejected' };
+        method = 'PATCH';
+      }
+      
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Invitation/Request ${action === 'accept' ? 'accepted' : 'rejected'} successfully!`);
+        fetchNotifications();
+      } else {
+        alert(data.error || 'Failed to update status.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error updating status.');
+    }
+  };
+
   const getIcon = (type) => {
     switch (type) {
       case 'like': return <Heart className="w-5 h-5 text-red-500 fill-current" />;
@@ -89,19 +129,31 @@ export default function NotificationsPage() {
       case 'mention': return <MessageCircle className="w-5 h-5 text-blue-500" />;
       case 'follow': return <UserPlus className="w-5 h-5 text-purple-500" />;
       case 'investor_interest': return <Bell className="w-5 h-5 text-yellow-500" />;
+      case 'co_founder_invite': return <Users className="w-5 h-5 text-indigo-500" />;
+      case 'invite_accepted': return <Check className="w-5 h-5 text-green-500" />;
+      case 'invite_rejected': return <X className="w-5 h-5 text-red-500" />;
+      case 'investment_request': return <DollarSign className="w-5 h-5 text-emerald-500" />;
+      case 'role_request': return <Briefcase className="w-5 h-5 text-primary" />;
       default: return <Bell className="w-5 h-5 text-gray-500" />;
     }
   };
 
   const getLink = (notification) => {
     switch (notification.type) {
-      case 'follow': return `/profile/${notification.sender._id}`;
+      case 'follow': return `/profile/${notification.sender.username || notification.sender._id}`;
       case 'post': 
       case 'like':
       case 'repost':
       case 'reply':
       case 'mention':
-        return `/post/${notification.entityId?._id || notification.entityId}`; // Handle populated or ID
+        return `/post/${notification.entityId?._id || notification.entityId}`;
+      case 'co_founder_invite':
+      case 'invite_accepted':
+      case 'invite_rejected':
+      case 'investment_request':
+        return `/messages`;
+      case 'role_request':
+        return `/dashboard/founder`;
       default: return '#';
     }
   };
@@ -146,11 +198,14 @@ export default function NotificationsPage() {
               </div>
             ) : (
               notifications.map((notification) => (
-                <Link 
-                  href={getLink(notification)} 
+                <div 
                   key={notification._id}
-                  onClick={() => !notification.isRead && markAsRead(notification._id)}
-                  className={`block bg-white p-4 rounded-xl border transition-colors ${
+                  onClick={() => {
+                    if (!notification.isRead) markAsRead(notification._id);
+                    const dest = getLink(notification);
+                    if (dest !== '#') router.push(dest);
+                  }}
+                  className={`block bg-white p-4 rounded-xl border transition-colors cursor-pointer ${
                     !notification.isRead ? 'border-blue-100 bg-blue-50/30' : 'border-gray-100 hover:bg-gray-50'
                   }`}
                 >
@@ -177,13 +232,52 @@ export default function NotificationsPage() {
                         {notification.type === 'reply' && `replied: "${notification.content}"`}
                         {notification.type === 'mention' && `mentioned you: "${notification.content}"`}
                         {notification.type === 'investor_interest' && 'is interested in your startup'}
+                        {notification.type === 'co_founder_invite' && (notification.content || 'invited you to join their startup team')}
+                        {notification.type === 'invite_accepted' && (notification.content || 'accepted your team invitation')}
+                        {notification.type === 'invite_rejected' && (notification.content || 'declined your team invitation')}
+                        {notification.type === 'investment_request' && (notification.content || 'sent you an investment request')}
+                        {notification.type === 'role_request' && (notification.content || 'sent you a startup role request')}
                       </p>
+
+                      {/* Action buttons for pending invites/requests */}
+                      {(notification.type === 'co_founder_invite' || notification.type === 'investment_request' || notification.type === 'role_request') && 
+                       notification.entityId && (
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={(e) => handleAction(e, notification.type, notification.entityId?._id || notification.entityId, 'accept')}
+                            className="bg-primary hover:bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={(e) => handleAction(e, notification.type, notification.entityId?._id || notification.entityId, 'reject')}
+                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold px-3 py-1.5 rounded-lg transition"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+
+                      {notification.type === 'role_request' && (
+                        <div className="flex gap-2 mt-3 font-sans">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!notification.isRead) markAsRead(notification._id);
+                              router.push('/dashboard/founder');
+                            }}
+                            className="bg-primary hover:bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
+                          >
+                            View in Recruitment Hub
+                          </button>
+                        </div>
+                      )}
                     </div>
                     {!notification.isRead && (
                       <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
                     )}
                   </div>
-                </Link>
+                </div>
               ))
             )}
           </div>

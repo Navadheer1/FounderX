@@ -1,12 +1,37 @@
 const mongoose = require('mongoose');
 
 const founderProfileSchema = new mongoose.Schema({
-  user: {
+  userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
     unique: true
   },
+  profilePhoto: {
+    type: String,
+    default: ''
+  },
+  bio: {
+    type: String,
+    default: ''
+  },
+  skills: [{
+    type: String,
+    trim: true
+  }],
+  experience: {
+    type: mongoose.Schema.Types.Mixed,
+    default: ''
+  },
+  linkedin: {
+    type: String,
+    default: ''
+  },
+  location: {
+    type: String,
+    default: ''
+  },
+  // Keep the below for compatibility with existing codebase features:
   startups: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Startup'
@@ -16,20 +41,20 @@ const founderProfileSchema = new mongoose.Schema({
     maxlength: 1000
   },
   pitchDeckUrl: {
-    type: String // URL to PDF
+    type: String
   },
   pitchVideoUrl: {
-    type: String // YouTube/Vimeo URL
+    type: String
   },
   equityOffering: {
-    type: Number, // Percentage 0-100
+    type: Number,
     min: 0,
     max: 100
   },
   traction: {
     users: { type: Number, default: 0 },
-    revenue: { type: Number, default: 0 }, // Monthly Revenue
-    growthRate: { type: Number, default: 0 } // Percentage
+    revenue: { type: Number, default: 0 },
+    growthRate: { type: Number, default: 0 }
   },
   website: String,
   socialLinks: {
@@ -40,6 +65,14 @@ const founderProfileSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
+});
+
+// Alias user to userId for backward compatibility
+founderProfileSchema.virtual('user', {
+  ref: 'User',
+  localField: 'userId',
+  foreignField: '_id',
+  justOne: true
 });
 
 module.exports = mongoose.model('FounderProfile', founderProfileSchema);

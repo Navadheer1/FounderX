@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
+import { useAuth } from '../../../context/AuthContext';
 import Navbar from '../../../components/Navbar';
 import { 
   Users, 
@@ -108,8 +110,9 @@ const getSafeImageSrc = (src) => {
 };
 
 // Startup Header Component
-function StartupHeader({ startup }) {
+function StartupHeader({ startup, isFollowing, onFollow, onInterest, onApplyRequest }) {
   const logoSrc = getSafeImageSrc(startup.logo);
+  const { user } = useAuth();
   
   return (
     <div className="card p-6 mb-6">
@@ -150,23 +153,33 @@ function StartupHeader({ startup }) {
           <p className="text-lg text-muted mb-4">{startup.tagline}</p>
           
           <div className="flex flex-wrap gap-3">
-            <button className="btn-primary flex items-center gap-1">
+            <button onClick={onFollow} className={`btn-primary flex items-center gap-1 ${isFollowing ? 'opacity-80 bg-slate-200 text-slate-800' : ''}`}>
               <Users className="h-4 w-4" />
-              Follow
+              {isFollowing ? 'Following' : 'Follow'}
             </button>
-            <button className="btn-secondary flex items-center gap-1">
-              <MessageSquare className="h-4 w-4" />
-              Investor Interested
-            </button>
-            <a 
-              href={startup.website} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="btn-secondary flex items-center gap-1"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Visit Website
-            </a>
+            {user && user.role === 'investor' && (
+              <button onClick={onInterest} className="btn-secondary flex items-center gap-1">
+                <MessageSquare className="h-4 w-4" />
+                Investor Interested
+              </button>
+            )}
+            {user && user.role === 'job_seeker' && (
+              <button onClick={onApplyRequest} className="btn-primary flex items-center gap-1 font-semibold">
+                <Sparkles className="h-4 w-4" />
+                Apply / Send Request
+              </button>
+            )}
+            {startup.website && (
+              <a 
+                href={startup.website} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="btn-secondary flex items-center gap-1"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Visit Website
+              </a>
+            )}
           </div>
         </div>
       </div>
@@ -301,6 +314,8 @@ function FounderSection({ founders }) {
 
 // Investor Panel Component
 function InvestorPanel({ funding }) {
+  const { user } = useAuth();
+
   return (
     <div className="card p-6 mb-6 bg-gradient-to-br from-blue-50 to-white">
       <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
@@ -325,16 +340,18 @@ function InvestorPanel({ funding }) {
         </div>
       </div>
       
-      <div className="flex flex-wrap gap-3">
-        <button className="btn-primary flex items-center gap-1">
-          <Eye className="h-4 w-4" />
-          View Pitch Deck
-        </button>
-        <button className="btn-secondary flex items-center gap-1">
-          <MessageSquare className="h-4 w-4" />
-          Request Intro
-        </button>
-      </div>
+      {(!user || user.role !== 'job_seeker') && (
+        <div className="flex flex-wrap gap-3">
+          <button className="btn-primary flex items-center gap-1">
+            <Eye className="h-4 w-4" />
+            View Pitch Deck
+          </button>
+          <button className="btn-secondary flex items-center gap-1">
+            <MessageSquare className="h-4 w-4" />
+            Request Intro
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -439,15 +456,127 @@ function AIStartupInsights({ insights }) {
   );
 }
 
-export default function StartupDetailPage({ params }) {
-  const [startup] = useState(demoStartup);
+export default function StartupDetailPage() {
+  const params = useParams();
+  const { id } = params;
+  const { user, token } = useAuth();
+  const [startup, setStartup] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [interestModalOpen, setInterestModalOpen] = useState(false);
+  const [roleRequestModalOpen, setRoleRequestModalOpen] = useState(false);
+
+  const fetchStartup = async () => {
+    try {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(`http://localhost:5000/api/startups/${id}`, { headers });
+      const json = await res.json();
+      if (json.success && json.data) {
+        const merged = {
+          ...demoStartup,
+          ...json.data,
+          metrics: { ...demoStartup.metrics, ...(json.data.metrics || {}) },
+          story: { ...demoStartup.story, ...(json.data.story || {}) },
+          funding: { ...demoStartup.funding, ...(json.data.funding || {}) },
+          aiInsights: { ...demoStartup.aiInsights, ...(json.data.aiInsights || {}) }
+        };
+        if (json.data.teamMembers && json.data.teamMembers.length > 0) {
+          merged.founders = json.data.teamMembers.map(m => ({
+            name: m.name,
+            role: m.role || 'Team Member',
+            bio: m.bio || 'Core startup team member.',
+            avatar: m.image || null,
+            _id: m.userId
+          }));
+        } else if (json.data.founderId) {
+          merged.founders = [{
+            name: json.data.founderId.name || 'Founder',
+            role: 'CEO & Founder',
+            bio: json.data.founderId.bio || 'Creator of this startup.',
+            avatar: json.data.founderId.profileImage || null,
+            _id: json.data.founderId._id || json.data.founderId
+          }];
+        }
+        setStartup(merged);
+        
+        if (user && json.data.saves) {
+          const hasSaved = json.data.saves.some(s => s.userId === user._id || s.userId?._id === user._id);
+          setIsFollowing(hasSaved);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching startup:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (id) {
+      fetchStartup();
+    }
+  }, [id, token, user]);
+
+  const handleFollowToggle = async () => {
+    if (!token) {
+      alert('Please log in to follow startups.');
+      return;
+    }
+    try {
+      const res = await fetch(`http://localhost:5000/api/startups/save/${id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsFollowing(data.data);
+        setStartup(prev => ({
+          ...prev,
+          metrics: {
+            ...prev.metrics,
+            followers: data.data ? prev.metrics.followers + 1 : Math.max(0, prev.metrics.followers - 1)
+          }
+        }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="flex h-[calc(100vh-4rem)] items-center justify-center text-slate-500">
+          Loading startup details...
+        </div>
+      </div>
+    );
+  }
+
+  if (!startup) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="flex h-[calc(100vh-4rem)] items-center justify-center text-slate-500">
+          Startup not found.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <StartupHeader startup={startup} />
+        <StartupHeader 
+          startup={startup} 
+          isFollowing={isFollowing} 
+          onFollow={handleFollowToggle} 
+          onInterest={() => setInterestModalOpen(true)} 
+          onApplyRequest={() => setRoleRequestModalOpen(true)}
+        />
         <StartupMetrics metrics={startup.metrics} />
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -464,6 +593,335 @@ export default function StartupDetailPage({ params }) {
           </div>
         </div>
       </main>
+
+      <InvestorInterestModal
+        isOpen={interestModalOpen}
+        onClose={() => setInterestModalOpen(false)}
+        startupId={startup._id}
+        onInterestSent={fetchStartup}
+      />
+
+      <RoleRequestModal
+        isOpen={roleRequestModalOpen}
+        onClose={() => setRoleRequestModalOpen(false)}
+        startupId={startup._id}
+        onRoleRequestSent={fetchStartup}
+      />
     </div>
   );
 }
+
+function InvestorInterestModal({ isOpen, onClose, startupId, onInterestSent }) {
+  const { token } = useAuth();
+  const [message, setMessage] = useState('');
+  const [investmentRange, setInvestmentRange] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/investor/interest-request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          startupId,
+          message,
+          investmentRange
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Interest request sent to the founder!');
+        onInterestSent();
+        onClose();
+      } else {
+        alert(data.error || 'Failed to send interest request.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error sending interest request.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden p-6 space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h3 className="text-lg font-bold text-slate-900 font-sans">Express Investment Interest</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">✕</button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1 font-sans">Introduce Yourself & Your Interest</label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Hi founder, I am interested in your startup..."
+              className="w-full p-3 border rounded-xl text-sm h-28"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1 font-sans">Typical Ticket/Investment Size</label>
+            <input
+              type="text"
+              value={investmentRange}
+              onChange={(e) => setInvestmentRange(e.target.value)}
+              placeholder="e.g. $25,000 - $50,000"
+              className="w-full p-2.5 border rounded-xl text-sm"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full btn-primary py-2.5 rounded-xl font-bold font-sans disabled:opacity-50"
+          >
+            {loading ? 'Sending...' : 'Send Interest Request'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function RoleRequestModal({ isOpen, onClose, startupId, onRoleRequestSent }) {
+  const { token, user } = useAuth();
+  const [requestType, setRequestType] = useState('Job');
+  const [roleTitle, setRoleTitle] = useState('');
+  const [skills, setSkills] = useState('');
+  const [resume, setResume] = useState('');
+  const [portfolioLink, setPortfolioLink] = useState('');
+  const [github, setGithub] = useState('');
+  const [linkedin, setLinkedin] = useState('');
+  const [message, setMessage] = useState('');
+  const [availabilityDate, setAvailabilityDate] = useState('');
+  const [expectedSalary, setExpectedSalary] = useState('');
+  const [reasonToJoin, setReasonToJoin] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Prepopulate from user's job seeker profile
+  useEffect(() => {
+    if (user && user.jobSeekerProfile) {
+      const p = user.jobSeekerProfile;
+      setSkills(Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || ''));
+      setResume(p.resume || '');
+      setPortfolioLink(p.portfolioLink || '');
+      setGithub(p.github || '');
+      setLinkedin(p.linkedin || '');
+      setExpectedSalary(p.expectedSalary || '');
+    }
+  }, [user, isOpen]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch(`http://localhost:5000/api/startups/${startupId}/role-request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          requestType,
+          roleTitle,
+          skills,
+          resume,
+          portfolioLink,
+          github,
+          linkedin,
+          message,
+          availabilityDate: availabilityDate || undefined,
+          expectedSalary,
+          reasonToJoin
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Role request sent to the founder!');
+        if (onRoleRequestSent) onRoleRequestSent();
+        onClose();
+      } else {
+        alert(data.error || 'Failed to send role request.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error sending role request.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8 overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex justify-between items-center border-b p-5 flex-shrink-0">
+          <h3 className="text-xl font-bold text-slate-900 font-sans">Apply / Send Request</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-lg">✕</button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 font-sans text-sm text-slate-800">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Request Type</label>
+              <select
+                value={requestType}
+                onChange={(e) => setRequestType(e.target.value)}
+                className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+                required
+              >
+                <option value="Internship">Internship</option>
+                <option value="Job">Job</option>
+                <option value="Co-founder">Co-founder</option>
+                <option value="Team Member">Team Member</option>
+                <option value="Custom">Custom</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Role Title</label>
+              <input
+                type="text"
+                value={roleTitle}
+                onChange={(e) => setRoleTitle(e.target.value)}
+                placeholder="e.g. Frontend Engineer, Marketing Lead"
+                className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">Skills (comma separated)</label>
+            <input
+              type="text"
+              value={skills}
+              onChange={(e) => setSkills(e.target.value)}
+              placeholder="e.g. React, Node.js, Growth Marketing"
+              className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Resume Link or Upload Link</label>
+              <input
+                type="text"
+                value={resume}
+                onChange={(e) => setResume(e.target.value)}
+                placeholder="e.g. Google Drive / Dropbox link"
+                className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Portfolio Link</label>
+              <input
+                type="text"
+                value={portfolioLink}
+                onChange={(e) => setPortfolioLink(e.target.value)}
+                placeholder="https://..."
+                className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">GitHub Link</label>
+              <input
+                type="text"
+                value={github}
+                onChange={(e) => setGithub(e.target.value)}
+                placeholder="https://github.com/..."
+                className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">LinkedIn Link</label>
+              <input
+                type="text"
+                value={linkedin}
+                onChange={(e) => setLinkedin(e.target.value)}
+                placeholder="https://linkedin.com/in/..."
+                className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Availability Date</label>
+              <input
+                type="date"
+                value={availabilityDate}
+                onChange={(e) => setAvailabilityDate(e.target.value)}
+                className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">Expected Stipend/Salary (yearly or monthly)</label>
+            <input
+              type="text"
+              value={expectedSalary}
+              onChange={(e) => setExpectedSalary(e.target.value)}
+              placeholder="e.g. $100k/yr, $2k/mo"
+              className="w-full p-2.5 border rounded-xl bg-white text-slate-800"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">Why do you want to join this startup?</label>
+            <textarea
+              value={reasonToJoin}
+              onChange={(e) => setReasonToJoin(e.target.value)}
+              placeholder="Tell the founder why you're passionate about their mission..."
+              className="w-full p-2.5 border rounded-xl h-20 bg-white text-slate-800"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">Message to Founder (Cover Message)</label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Brief message..."
+              className="w-full p-2.5 border rounded-xl h-20 bg-white text-slate-800"
+            />
+          </div>
+
+          <div className="pt-4 border-t flex-shrink-0 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn-secondary py-2 px-5 rounded-xl font-bold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary py-2 px-6 rounded-xl font-bold disabled:opacity-50"
+            >
+              {loading ? 'Sending...' : 'Send Request'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+

@@ -2,21 +2,24 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
+  fullName: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 100
+  },
+  name: {
+    type: String,
+    trim: true,
+    maxlength: 100
+  },
   username: {
     type: String,
     required: true,
     unique: true,
     lowercase: true,
     trim: true,
-    index: true,
-    minlength: 3,
-    maxlength: 30
-  },
-  name: {
-    type: String,
-    required: true,
-    trim: true,
-    maxlength: 100
+    index: true
   },
   email: {
     type: String,
@@ -25,16 +28,15 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     trim: true
   },
-  password: {
+  passwordHash: {
     type: String,
     required: function() {
       return !this.googleId && !this.linkedinId;
-    },
-    minlength: 6
+    }
   },
   role: {
     type: String,
-    enum: ['founder', 'investor'],
+    enum: ['job_seeker', 'founder', 'investor', 'admin'],
     default: 'founder'
   },
   profileImage: {
@@ -64,6 +66,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
+  profileCompleted: {
+    type: Boolean,
+    default: false
+  },
   isProfileComplete: {
     type: Boolean,
     default: false
@@ -252,24 +258,31 @@ const userSchema = new mongoose.Schema({
 userSchema.virtual('founderProfile', {
   ref: 'FounderProfile',
   localField: '_id',
-  foreignField: 'user',
+  foreignField: 'userId',
   justOne: true
 });
 
 userSchema.virtual('investorProfile', {
   ref: 'InvestorProfile',
   localField: '_id',
-  foreignField: 'user',
+  foreignField: 'userId',
+  justOne: true
+});
+
+userSchema.virtual('jobSeekerProfile', {
+  ref: 'JobSeekerProfile',
+  localField: '_id',
+  foreignField: 'userId',
   justOne: true
 });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  if (!this.isModified('passwordHash')) return next();
   
   try {
     const salt = await bcrypt.genSalt(12);
-    this.password = await bcrypt.hash(this.password, salt);
+    this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
     next();
   } catch (error) {
     next(error);
@@ -278,14 +291,17 @@ userSchema.pre('save', async function(next) {
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.password);
+  const hash = this.passwordHash || this._doc.password;
+  if (!hash) return false;
+  return bcrypt.compare(candidatePassword, hash);
 };
 
 // Get public profile data
 userSchema.methods.toPublicJSON = function() {
   const data = {
     _id: this._id,
-    name: this.name,
+    fullName: this.fullName,
+    name: this.fullName || this.name,
     username: this.username,
     role: this.role,
     profileImage: this.profileImage,
@@ -311,7 +327,8 @@ userSchema.methods.toPublicJSON = function() {
     subscriptionPlan: this.subscriptionPlan,
     story: this.story,
     interests: this.interests,
-    isProfileComplete: this.isProfileComplete,
+    profileCompleted: this.profileCompleted,
+    isProfileComplete: this.profileCompleted || this.isProfileComplete,
     createdAt: this.createdAt
   };
 
@@ -319,6 +336,8 @@ userSchema.methods.toPublicJSON = function() {
     data.roleProfile = this.founderProfile;
   } else if (this.role === 'investor' && this.investorProfile) {
     data.roleProfile = this.investorProfile;
+  } else if (this.role === 'job_seeker' && this.jobSeekerProfile) {
+    data.roleProfile = this.jobSeekerProfile;
   }
 
   return data;

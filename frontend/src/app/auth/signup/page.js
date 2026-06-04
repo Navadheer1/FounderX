@@ -7,12 +7,14 @@ import { Briefcase, Users, User, Eye, EyeOff } from 'lucide-react';
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
-    name: '',
+    fullName: '',
     email: '',
     password: '',
+    confirmPassword: '',
     role: 'founder' // Default role
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const { register } = useAuth();
 
@@ -27,7 +29,25 @@ export default function SignupPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const res = await register(formData);
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
+    const payload = {
+      fullName: formData.fullName,
+      email: formData.email,
+      password: formData.password,
+      role: formData.role
+    };
+
+    const res = await register(payload);
     if (!res.success) {
       setError(res.error);
     }
@@ -42,7 +62,20 @@ export default function SignupPage() {
         </div>
 
         {/* Role Selection */}
-        <div className="grid grid-cols-2 gap-3 mb-8">
+        <div className="grid grid-cols-3 gap-2.5 mb-8">
+          <button
+            type="button"
+            onClick={() => handleRoleSelect('job_seeker')}
+            className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition ${
+              formData.role === 'job_seeker'
+                ? 'border-indigo-500 bg-indigo-50 text-indigo-650'
+                : 'border-gray-100 hover:border-indigo-100 text-body'
+            }`}
+          >
+            <User className="h-6 w-6 mb-2" />
+            <span className="text-[11px] font-bold">Job Seeker</span>
+          </button>
+
           <button
             type="button"
             onClick={() => handleRoleSelect('founder')}
@@ -53,7 +86,7 @@ export default function SignupPage() {
             }`}
           >
             <Briefcase className="h-6 w-6 mb-2" />
-            <span className="text-xs font-bold">Founder</span>
+            <span className="text-[11px] font-bold">Founder</span>
           </button>
           
           <button
@@ -66,7 +99,7 @@ export default function SignupPage() {
             }`}
           >
             <Users className="h-6 w-6 mb-2" />
-            <span className="text-xs font-bold">Investor</span>
+            <span className="text-[11px] font-bold">Investor</span>
           </button>
         </div>
 
@@ -81,11 +114,11 @@ export default function SignupPage() {
             <label className="block text-sm font-medium text-heading mb-1">Full Name</label>
             <input
               type="text"
-              name="name"
+              name="fullName"
               required
               className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition"
               placeholder="John Doe"
-              value={formData.name}
+              value={formData.fullName}
               onChange={handleChange}
             />
           </div>
@@ -122,6 +155,33 @@ export default function SignupPage() {
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
+                  <EyeOff className="h-5 w-5" />
+                ) : (
+                  <Eye className="h-5 w-5" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-heading mb-1">Confirm Password</label>
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                name="confirmPassword"
+                required
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition pr-12"
+                placeholder="••••••••"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary transition-colors focus:outline-none"
+                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+              >
+                {showConfirmPassword ? (
                   <EyeOff className="h-5 w-5" />
                 ) : (
                   <Eye className="h-5 w-5" />

@@ -36,22 +36,7 @@ const startupSchema = new mongoose.Schema({
   industry: {
     type: String,
     required: true,
-    enum: [
-      'Technology',
-      'Healthcare',
-      'Finance',
-      'Education',
-      'E-commerce',
-      'SaaS',
-      'AI/ML',
-      'Blockchain',
-      'CleanTech',
-      'FoodTech',
-      'Fashion',
-      'Real Estate',
-      'Transportation',
-      'Other'
-    ]
+    default: 'Other'
   },
   stage: {
     type: String,
@@ -90,6 +75,11 @@ const startupSchema = new mongoose.Schema({
     min: 0,
     default: 0
   },
+  fundingNeeded: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
   minInvestment: {
     type: Number,
     min: 0,
@@ -102,6 +92,10 @@ const startupSchema = new mongoose.Schema({
     default: 0
   },
   pitchVideo: {
+    type: String,
+    default: ''
+  },
+  pitchDeck: {
     type: String,
     default: ''
   },
@@ -126,9 +120,17 @@ const startupSchema = new mongoose.Schema({
     type: String,
     maxlength: 1000
   },
+  problemStatement: {
+    type: String,
+    maxlength: 1000
+  },
   solution: {
     type: String,
     maxlength: 1000
+  },
+  teamSize: {
+    type: Number,
+    default: 1
   },
   vision: {
     type: String,
@@ -244,11 +246,6 @@ const startupSchema = new mongoose.Schema({
 // Virtual for total followers count
 startupSchema.virtual('followerCount').get(function() {
   return this.followers.length;
-});
-
-// Virtual for team size
-startupSchema.virtual('teamSize').get(function() {
-  return this.teamMembers.length + 1; // +1 for founder
 });
 
 // Method to check if user is founder

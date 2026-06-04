@@ -18,8 +18,12 @@ export default function Dashboard() {
     }
 
     // Redirect based on role
-    if (user.role === 'investor') {
+    if (user.role === 'admin') {
+      router.push('/dashboard/admin');
+    } else if (user.role === 'investor') {
       router.push('/dashboard/investor');
+    } else if (user.role === 'job_seeker') {
+      router.push('/dashboard/job-seeker');
     } else {
       router.push('/dashboard/founder');
     }
